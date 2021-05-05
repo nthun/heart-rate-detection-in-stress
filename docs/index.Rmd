@@ -12,23 +12,129 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r, echo = TRUE, eval = FALSE}
-install.packages(c("tidyverse", "psych", "skimr", "ggridges", "tidytext", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed"))
+```{r, echo = TRUE, eval = FALSE, include = FALSE}
+install.packages(c("tidyverse", "skimr", "ggridges", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed"))
 ```
 
 
 
-```{r setup, echo = TRUE, message = FALSE, warning = FALSE}
+```{r setup, message = FALSE, warning = FALSE, include = FALSE}
 library(tidyverse)
-library(psych)
 library(skimr)
 library(ggridges)
-library(tidytext)
-library(lme4)
+library(lmerTest)
 library(performance)
 library(sjPlot)
 library(broom.mixed)
+library(googlesheets4)
+library(stringi)
+library(gt)
 
+knitr::opts_chunk$set(echo = FALSE)
 theme_set(theme_light())
+```
+
+
+```{r data_read, include = FALSE}
+
+experiment_data_raw <- 
+  googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/19AcUrnOCxCH_Huu1yQ4JjEuJWljFRzhFQPYIGU1nhj0/edit#gid=57027312") %>% 
+  janitor::clean_names() %>% 
+  mutate(code = as.character(code))
+```
+
+
+```{r}
+
+experiment <-
+  experiment_data_raw %>%
+  rename(id = code) %>% 
+  mutate(id = stri_trans_general(id, "Latin-ASCII") %>% 
+              str_to_lower(),
+         sex = recode(sex, `1` = "Male", `2` = "Female")) %>% 
+  select(-starts_with("marker_"))
+```
+
+# Baseline difference
+```{r}
 
 ```
+
+
+# Manipulation check
+
+Controlling  for the baseline level of anxiety and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
+
+```{r}
+
+stai <-
+   experiment %>% 
+   select(id, ends_with("_sum"), mental_order_1_2) %>% 
+   pivot_longer(cols = -c(id, stai_s_t0_sum, mental_order_1_2)) %>% 
+   extract(name, 
+           into = c("task", "time"), 
+           regex = "stai_s_(.*)_(.*)_sum") %>% 
+   mutate(task = str_to_title(task))
+
+stai_sum <- 
+   stai %>% 
+   group_by(task, time) %>% 
+   summarise(stai_avg = mean(value, na.rm = TRUE),
+             stai_sd = sd(value, na.rm = TRUE),
+             stai_se = stai_sd/sqrt(n()),
+             .groups = "drop")
+
+```
+
+```{r}
+# Table
+stai_sum %>% 
+   select(-stai_se) %>% 
+   pivot_wider(names_from = c(time), names_sep = "_",
+               values_from = c(stai_avg, stai_sd)) %>% 
+   gt() %>% 
+      fmt_number(columns = starts_with("stai_"), 
+                 decimals = 1) %>% 
+   cols_merge(columns = c("stai_avg_t0", "stai_sd_t0"), 
+              pattern = "{1} ({2})") %>% 
+   cols_merge(columns = c("stai_avg_t1", "stai_sd_t1"), 
+              pattern = "{1} ({2})") %>% 
+   cols_label(task = "Task",
+              stai_avg_t0 = "Pre-stress", 
+              stai_avg_t1 = "Post-stress") %>% 
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey") %>% 
+   tab_footnote(footnote = "Values represent the average (SD) of the STAI-S",
+                locations = cells_column_labels(3))
+
+```
+
+---
+
+```{r}
+# Stats
+stai %>% 
+   filter(task != "baseline") %>% 
+   lmer(value ~ task * time + stai_s_t0_sum + mental_order_1_2 + (1|id), data = .) %>% 
+   tab_model(dv.labels = "STAI-S")
+```
+
+---
+
+```{r}
+# Visualize
+stai_sum %>% 
+   ggplot() +
+   aes(x = time, y = stai_avg, group = task, color = task,
+       ymin = stai_avg - stai_se, ymax = stai_avg + stai_se) +
+   geom_pointrange() +
+   geom_line(size = 1.2, alpha = .6) +
+   scale_y_continuous(limits = c(0, NA)) +
+   labs(color = "Task",
+        title = "Change in STAI-S by task and time",
+        subtitle = "STAI-S increased only in the mental stress task. Error bars represent standard errors.")
+
+
+```
+
+
