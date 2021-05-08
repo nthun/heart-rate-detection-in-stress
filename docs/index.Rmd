@@ -17,7 +17,6 @@ install.packages(c("tidyverse", "skimr", "ggridges", "lme4", "performance", "sjP
 ```
 
 
-
 ```{r setup, message = FALSE, warning = FALSE, include = FALSE}
 library(tidyverse)
 library(skimr)
@@ -29,11 +28,19 @@ library(broom.mixed)
 library(googlesheets4)
 library(stringi)
 library(gt)
+library(ggbeeswarm)
 
 knitr::opts_chunk$set(echo = FALSE)
 theme_set(theme_light())
 ```
 
+```{css}
+.main-container {
+    max-width: 100%;
+}
+```
+
+The following analysis report contains the descriptive and inferential statistics for the experiment that investigated how physiological and subjective arousal might be mediated by cardioceptive accuracy.
 
 ```{r data_read, include = FALSE}
 
@@ -41,6 +48,9 @@ experiment_data_raw <-
   googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/19AcUrnOCxCH_Huu1yQ4JjEuJWljFRzhFQPYIGU1nhj0/edit#gid=57027312") %>% 
   janitor::clean_names() %>% 
   mutate(code = as.character(code))
+
+phys_data <- read_csv(here::here("data/08_summarised/phys_long.csv"))
+
 ```
 
 
@@ -51,19 +61,63 @@ experiment <-
   rename(id = code) %>% 
   mutate(id = stri_trans_general(id, "Latin-ASCII") %>% 
               str_to_lower(),
-         sex = recode(sex, `1` = "Male", `2` = "Female")) %>% 
+         sex = recode(sex, `1` = "Male", `2` = "Female"),
+         bodyweight = as.numeric(bodyweight),
+         bmi = bodyweight / (bodyheight/100)^2) %>% 
   select(-starts_with("marker_"))
 ```
 
-# Baseline difference
+# Sample characteristics
 ```{r}
+
+experiment %>% 
+   select(id, sex, age, mental_order_1_2, stai_s_t0_sum, bmi, bodyfat_percent, max_grip_strength, resting_hr) %>% 
+   mutate(male = if_else(sex == "Male", 1, 0),
+          n = n()) %>% 
+   summarise(across(c(n, male, age, stai_s_t0_sum, bmi, bodyfat_percent, resting_hr), 
+                    list("_avg" = mean, "_sd" = sd, "_min" = min, "_max" = max), 
+                    na.rm = TRUE)) %>% 
+   pivot_longer(everything(),
+                names_to = c(".value", "parameter"),
+                names_pattern = "(.*)__(.*)$") %>% 
+   pivot_longer(-parameter) %>% 
+   pivot_wider(names_from = "parameter") %>% 
+   mutate(avg = if_else(name %in% c("male"), avg * 100, avg),
+          sd = if_else(name %in% c("n", "male"), NA_real_, sd),
+          min = if_else(name %in% c("n", "male"), NA_real_, min),
+          max = if_else(name %in% c("n", "male"), NA_real_, max),
+          name = c("N", "Male %", "Mean age in years", "Mean STAI-S Baseline", "Mean BMI in kg/m<sup>2</sup>", "Mean Bodyfat %", "Mean resting HR in bpm")
+          ) %>% 
+   gt() %>% 
+   fmt_number(2:5, decimals = 1, rows = 2:7) %>% 
+   fmt_markdown(columns = 1) %>% 
+   fmt_missing(everything(), missing_text = "-") %>% 
+   cols_merge(columns = c("avg", "sd"), pattern = "{1} ({2})") %>% 
+   cols_merge(columns = c("min", "max"), pattern = "{1}-{2}") %>% 
+   cols_label("name" = "", "avg" = "Value (SD)", "min" = "Range") %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey")
+
+
+experiment %>% 
+   select(age, stai_s_t0_sum, bmi, bodyfat_percent, max_grip_strength, resting_hr) %>%
+   pivot_longer(everything()) %>% 
+   ggplot() +
+   aes(x = value, fill = name) +
+   geom_histogram(show.legend = FALSE) +
+   facet_wrap(~name, scales = "free") +
+   labs(title = "Histograms of participant characteristics")
 
 ```
 
 
 # Manipulation check
 
-Controlling  for the baseline level of anxiety and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
+We tested if the tasks were perceived as stressful.  
+
+## STAI-S
+
+Controlling  for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
 
 ```{r}
 
@@ -93,7 +147,7 @@ stai_sum %>%
    pivot_wider(names_from = c(time), names_sep = "_",
                values_from = c(stai_avg, stai_sd)) %>% 
    gt() %>% 
-      fmt_number(columns = starts_with("stai_"), 
+   fmt_number(columns = starts_with("stai_"), 
                  decimals = 1) %>% 
    cols_merge(columns = c("stai_avg_t0", "stai_sd_t0"), 
               pattern = "{1} ({2})") %>% 
@@ -104,20 +158,28 @@ stai_sum %>%
               stai_avg_t1 = "Post-stress") %>% 
    tab_options(column_labels.font.weight = "bold",
                column_labels.background.color = "lightgrey") %>% 
-   tab_footnote(footnote = "Values represent the average (SD) of the STAI-S",
+   tab_footnote(footnote = "Values represent the mean (SD) of the STAI-S",
                 locations = cells_column_labels(3))
 
 ```
 
 ---
-
+<div align="center">
 ```{r}
 # Stats
 stai %>% 
    filter(task != "baseline") %>% 
-   lmer(value ~ task * time + stai_s_t0_sum + mental_order_1_2 + (1|id), data = .) %>% 
-   tab_model(dv.labels = "STAI-S")
+   lmer(value ~ task * time + stai_s_t0_sum + mental_order_1_2 + (1|id), 
+        data = .) %>% 
+   tab_model(dv.labels = "STAI-S", 
+             pred.labels = c("Task:Physical", 
+                             "Time:Post", 
+                             "STAI-S Baseline", 
+                             "Task order",
+                             "Task:Physical * Time:Post"
+                             ))
 ```
+</div>
 
 ---
 
@@ -137,4 +199,25 @@ stai_sum %>%
 
 ```
 
+## Subjective stress (VAS)
+
+Most of the participants regarded the mental stress more stressful than the physical stress.
+
+```{r warning=FALSE}
+experiment %>% 
+   select(id, mental_experienced_stress, physical_experienced_stress) %>% 
+   pivot_longer(-id) %>% 
+   mutate(name = str_remove(name, "_experienced_stress")) %>% 
+   ggplot() +
+   aes(x = value, y = name) +
+   geom_violin(aes(fill = name), alpha = .8, show.legend = FALSE) +
+   geom_line(aes(group = id), alpha = .2) +
+   geom_boxplot(show.legend = FALSE, width = .25, outlier.alpha = 0, alpha = .6) +
+   geom_quasirandom(groupOnX = FALSE) +
+   labs(y = NULL, 
+        x = "On a scale of 0-100, how stressful was the task for you?",
+        title = "Distribution of Experienced stress by task",
+        subtitle = "Physical stress was percieved as less stressful.")
+
+```
 
