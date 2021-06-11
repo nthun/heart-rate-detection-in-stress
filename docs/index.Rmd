@@ -30,7 +30,7 @@ library(stringi)
 library(gt)
 library(ggbeeswarm)
 
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
 theme_set(theme_light())
 ```
 
@@ -111,7 +111,7 @@ experiment %>%
 ```
 
 
-# Manipulation check
+# Subjective response to stress
 
 We tested if the tasks were perceived as stressful.  
 
@@ -203,7 +203,7 @@ stai_sum %>%
 
 Most of the participants regarded the mental stress more stressful than the physical stress.
 
-```{r warning=FALSE}
+```{r}
 experiment %>% 
    select(id, mental_experienced_stress, physical_experienced_stress) %>% 
    pivot_longer(-id) %>% 
@@ -219,5 +219,136 @@ experiment %>%
         title = "Distribution of Experienced stress by task",
         subtitle = "Physical stress was percieved as less stressful.")
 
+```
+
+# Psychophysiological response to stress
+
+```{r}
+
+outliers <- 
+   phys_data %>% 
+   pivot_longer(eda_avg:hf_abs) %>% 
+   group_by(name) %>% 
+   mutate(outlier = if_else(abs(scale(value)) > 3.5, TRUE, FALSE),
+          .before = value) %>% 
+   ungroup()
+
+outliers %>% 
+   ggplot() +
+   aes(x = value, fill = outlier) +
+   geom_histogram() +
+   facet_wrap(~name, scales = "free") +
+   scale_fill_manual(values = c("lightblue", "red")) +
+   labs(x = NULL, y = NULL,
+        title = "Histogram of the physiological variables",
+        subtitle = "Outliers (red) are identified as values outside of 3.5 SD")
+
+
+```
+
+# Data cleaning
+
+We remove outliers (values outside of 3.5 SD), and apply natural log transformation on the values. Values show that the increase variables should be analyzed using a GLM with exponential distribution.
+
+```{r}
+phys_trans <-
+   outliers %>% 
+   group_by(name, id) %>% 
+   mutate(lg = log(value + 1),
+          std = scale(value) %>% as.numeric(),
+          stdlg = scale(lg) %>% as.numeric()) %>% 
+   ungroup() %>% 
+   pivot_wider(names_from = "name",
+               values_from = value:stdlg) %>% 
+   set_names(str_remove(names(.), "value_"))
+
+phys_std %>% 
+   pivot_longer(eda_avg:hf_abs) %>% 
+   ggplot() +
+   aes(x = value) +
+   geom_histogram() +
+   facet_wrap(~name, scales = "free") +
+   labs(x = NULL, y = NULL,
+        title = "Histogram of the log transformed physiological variables",
+        subtitle = "Outliers have been removed")
+
+# Standardize within person
+
+phys_std <-
+   phys_data %>% 
+   pivot_longer(eda_avg:hf_abs) %>% 
+   group_by(id, name) %>% 
+   mutate(value = scale(value) %>% as.numeric()) %>% 
+   pivot_wider(names_from = "name", values_from = "value")
+   
+
+lmer(stdlg_eda_increase ~ marker + (1|id), data = phys_trans) %>% 
+   summary()
+   
+lmer(stdlg_rmssd ~ marker + (1|id), data = phys_trans) %>% 
+   summary()
+
+lmer(std_hf_percent ~ marker + (1|id), data = phys_trans) %>% 
+   summary()
+
+
+lmer(stdlg_meanhr ~ marker + (1|id), data = phys_trans) %>% 
+   summary()
+
+
+```
+
+# Physiological response to stress
+
+```{r}
+phys_std %>% 
+   select(id:recordingtime_s, eda_increase, rmssd, hr)
+```
+
+
+## Electrodermal response
+
+```{r}
+# TODO: estimates are not shown properly
+edai_mod <- 
+      glmer(I(eda_increase+1) ~ marker + (1|id),
+            family = Gamma(link = "log"), 
+            data = phys_data)
+
+summary(edai_mod)
+tab_model(edai_mod)
+
+lmer(scr_avg ~ marker + (1|id), data = phys_log) %>% 
+   summary()
+
+```
+
+## Heart Rate and Heart rate variability (HRV)
+
+We use the log transformed HR, RMSSD and HF
+
+
+### HR
+```{r}
+hr_mod <- lmer(meanhr ~ marker + (1|id), data = phys_log)
+   
+summary(hr_mod)
+   
+```
+
+### RMSSD
+```{r}
+rmssd_mod <- lmer(rmssd ~ marker + (1|id), data = phys_log)
+   
+summary(rmssd_mod)
+   
+```
+
+### HF
+```{r}
+hf_mod <- lmer(hf_percent ~ marker + (1|id), data = phys_log)
+   
+summary(hf_mod)
+   
 ```
 
