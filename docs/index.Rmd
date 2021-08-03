@@ -13,14 +13,13 @@ editor_options:
 ---
 
 ```{r, echo = TRUE, eval = FALSE, include = FALSE}
-install.packages(c("tidyverse", "skimr", "ggridges", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed"))
+install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed"))
 ```
 
 
 ```{r setup, message = FALSE, warning = FALSE, include = FALSE}
 library(tidyverse)
 library(skimr)
-library(ggridges)
 library(lmerTest)
 library(performance)
 library(sjPlot)
@@ -30,9 +29,16 @@ library(stringi)
 library(gt)
 library(ggbeeswarm)
 
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 theme_set(theme_light())
 ```
+
+
+```{r}
+# Set parameters
+outlier_treshold_sd = 3 # Threshold for outliers in SD
+```
+
 
 ```{css}
 .main-container {
@@ -55,15 +61,18 @@ phys_data <- read_csv(here::here("data/08_summarised/phys_long.csv"))
 
 
 ```{r}
-
 experiment <-
   experiment_data_raw %>%
-  rename(id = code) %>% 
+  rename(id = code, task_order = mental_order_1_2) %>% 
   mutate(id = stri_trans_general(id, "Latin-ASCII") %>% 
               str_to_lower(),
          sex = recode(sex, `1` = "Male", `2` = "Female"),
          bodyweight = as.numeric(bodyweight),
-         bmi = bodyweight / (bodyheight/100)^2) %>% 
+         bmi = bodyweight / (bodyheight/100)^2,
+         task_order = if_else(task_order == 1, 
+                              "Mental first", 
+                              "Physical first") %>% 
+                       as.factor()) %>% 
   select(-starts_with("marker_"))
 ```
 
@@ -71,7 +80,7 @@ experiment <-
 ```{r}
 
 experiment %>% 
-   select(id, sex, age, mental_order_1_2, stai_s_t0_sum, bmi, bodyfat_percent, max_grip_strength, resting_hr) %>% 
+   select(id, sex, age, task_order, stai_s_t0_sum, bmi, bodyfat_percent, max_grip_strength, resting_hr) %>% 
    mutate(male = if_else(sex == "Male", 1, 0),
           n = n()) %>% 
    summarise(across(c(n, male, age, stai_s_t0_sum, bmi, bodyfat_percent, resting_hr), 
@@ -117,14 +126,14 @@ We tested if the tasks were perceived as stressful.
 
 ## STAI-S
 
-Controlling  for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
+Controlling for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
 
 ```{r}
 
 stai <-
    experiment %>% 
-   select(id, ends_with("_sum"), mental_order_1_2) %>% 
-   pivot_longer(cols = -c(id, stai_s_t0_sum, mental_order_1_2)) %>% 
+   select(id, ends_with("_sum"), task_order) %>% 
+   pivot_longer(cols = -c(id, stai_s_t0_sum, task_order)) %>% 
    extract(name, 
            into = c("task", "time"), 
            regex = "stai_s_(.*)_(.*)_sum") %>% 
@@ -169,15 +178,19 @@ stai_sum %>%
 # Stats
 stai %>% 
    filter(task != "baseline") %>% 
-   lmer(value ~ task * time + stai_s_t0_sum + mental_order_1_2 + (1|id), 
+   lmer(value ~ task * time + stai_s_t0_sum + task_order + (1|id), 
         data = .) %>% 
    tab_model(dv.labels = "STAI-S", 
-             pred.labels = c("Task:Physical", 
-                             "Time:Post", 
-                             "STAI-S Baseline", 
-                             "Task order",
-                             "Task:Physical * Time:Post"
-                             ))
+             # show.reflvl = TRUE,
+             show.aicc = TRUE,
+             show.loglik = TRUE#,
+             # pred.labels = c("Task:Physical", 
+             #                 "Time:Post", 
+             #                 "STAI-S Baseline", 
+             #                 "Task order",
+             #                 "Task:Physical * Time:Post"
+             #                 )
+             )
 ```
 </div>
 
@@ -187,14 +200,20 @@ stai %>%
 # Visualize
 stai_sum %>% 
    ggplot() +
-   aes(x = time, y = stai_avg, group = task, color = task,
-       ymin = stai_avg - stai_se, ymax = stai_avg + stai_se) +
+   aes(x = str_to_sentence(time), 
+       y = stai_avg, 
+       group = task, 
+       color = task,
+       ymin = stai_avg - stai_se, 
+       ymax = stai_avg + stai_se) +
    geom_pointrange() +
    geom_line(size = 1.2, alpha = .6) +
    scale_y_continuous(limits = c(0, NA)) +
    labs(color = "Task",
         title = "Change in STAI-S by task and time",
-        subtitle = "STAI-S increased only in the mental stress task. Error bars represent standard errors.")
+        subtitle = "STAI-S increased only in the mental stress task.",
+        y = "Mean STAI-S (SE)",
+        x = "Measurement")
 
 
 ```
@@ -207,15 +226,16 @@ Most of the participants regarded the mental stress more stressful than the phys
 experiment %>% 
    select(id, mental_experienced_stress, physical_experienced_stress) %>% 
    pivot_longer(-id) %>% 
-   mutate(name = str_remove(name, "_experienced_stress")) %>% 
+   mutate(name = str_remove(name, "_experienced_stress") %>% 
+                 str_to_title()) %>% 
    ggplot() +
-   aes(x = value, y = name) +
+   aes(y = value, x = name) +
    geom_violin(aes(fill = name), alpha = .8, show.legend = FALSE) +
    geom_line(aes(group = id), alpha = .2) +
    geom_boxplot(show.legend = FALSE, width = .25, outlier.alpha = 0, alpha = .6) +
-   geom_quasirandom(groupOnX = FALSE) +
-   labs(y = NULL, 
-        x = "On a scale of 0-100, how stressful was the task for you?",
+   geom_quasirandom(groupOnX = TRUE) +
+   labs(x = NULL, 
+        y = "On a scale of 0-100, how stressful was the task for you?",
         title = "Distribution of Experienced stress by task",
         subtitle = "Physical stress was percieved as less stressful.")
 
@@ -223,17 +243,33 @@ experiment %>%
 
 # Psychophysiological response to stress
 
-```{r}
+## Outlier detection
 
-outliers <- 
+We first flag outliers (calculated as outside of `r outlier_treshold_sd` SDs), and check how many can be found in each metric.
+
+```{r}
+outlier_flagged <- 
    phys_data %>% 
    pivot_longer(eda_avg:hf_abs) %>% 
    group_by(name) %>% 
-   mutate(outlier = if_else(abs(scale(value)) > 3.5, TRUE, FALSE),
+   mutate(outlier = if_else(abs(scale(value)) > outlier_treshold_sd, TRUE, FALSE),
           .before = value) %>% 
    ungroup()
 
-outliers %>% 
+outlier_flagged %>% 
+   group_by(name) %>% 
+   summarise( n_outlier = sum(outlier, na.rm = TRUE),
+              perc_outlier = mean(outlier, na.rm = TRUE)) %>% 
+   arrange(-perc_outlier) %>% 
+   gt() %>% 
+   fmt_percent(perc_outlier) %>% 
+   cols_label(name = "Name",
+              n_outlier = "N outlier",
+              perc_outlier = "% outlier") %>% 
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey")
+
+outlier_flagged %>% 
    ggplot() +
    aes(x = value, fill = outlier) +
    geom_histogram() +
@@ -241,114 +277,134 @@ outliers %>%
    scale_fill_manual(values = c("lightblue", "red")) +
    labs(x = NULL, y = NULL,
         title = "Histogram of the physiological variables",
-        subtitle = "Outliers (red) are identified as values outside of 3.5 SD")
-
+        subtitle = str_glue("Outliers (red) are identified as values outside of {outlier_treshold_sd} SD"),
+        fill = "Outlier")
 
 ```
 
-# Data cleaning
+## Data cleaning
 
-We remove outliers (values outside of 3.5 SD), and apply natural log transformation on the values. Values show that the increase variables should be analyzed using a GLM with exponential distribution.
+We remove outliers, and apply natural log+1 transformation on the values. Values show that the EDA and SCR increase variables should be analyzed using a GLM with exponential distribution.
 
 ```{r}
 phys_trans <-
-   outliers %>% 
-   group_by(name, id) %>% 
-   mutate(lg = log(value + 1),
-          std = scale(value) %>% as.numeric(),
-          stdlg = scale(lg) %>% as.numeric()) %>% 
-   ungroup() %>% 
+   outlier_flagged %>% 
+   # Remove outliers
+   filter(!outlier) %>% 
+   # Create log transformed values
+   mutate(lg = log(value + 1)) %>% 
    pivot_wider(names_from = "name",
-               values_from = value:stdlg) %>% 
-   set_names(str_remove(names(.), "value_"))
+               values_from = c(value, lg)) %>% 
+   set_names(str_remove(names(.), "value_")) %>% 
+   # Join participant data
+   left_join(select(experiment, 
+                    id, sex, age, bodyfat_percent, bmi, task_order), 
+             by = "id")
 
-phys_std %>% 
-   pivot_longer(eda_avg:hf_abs) %>% 
+phys_trans %>% 
+   select(starts_with("lg_")) %>% 
+   pivot_longer(everything()) %>% 
    ggplot() +
    aes(x = value) +
    geom_histogram() +
    facet_wrap(~name, scales = "free") +
    labs(x = NULL, y = NULL,
-        title = "Histogram of the log transformed physiological variables",
+        title = "Histogram of the log+1 transformed physiological variables",
         subtitle = "Outliers have been removed")
-
-# Standardize within person
-
-phys_std <-
-   phys_data %>% 
-   pivot_longer(eda_avg:hf_abs) %>% 
-   group_by(id, name) %>% 
-   mutate(value = scale(value) %>% as.numeric()) %>% 
-   pivot_wider(names_from = "name", values_from = "value")
-   
-
-lmer(stdlg_eda_increase ~ marker + (1|id), data = phys_trans) %>% 
-   summary()
-   
-lmer(stdlg_rmssd ~ marker + (1|id), data = phys_trans) %>% 
-   summary()
-
-lmer(std_hf_percent ~ marker + (1|id), data = phys_trans) %>% 
-   summary()
-
-
-lmer(stdlg_meanhr ~ marker + (1|id), data = phys_trans) %>% 
-   summary()
 
 
 ```
 
-# Physiological response to stress
+# Analysis of the effects of the tasks on physiological variables
+## Heart rate related variables
+
+### Variables
+Heart rate and HRV variables were investigated using linear mixed-effect models, with random intercept by person. HRV variables were log+1 transformed to correct for right skew.
+
+### Results 
+HR was increased in the physical task compared to baseline.
+log(RMSSD) did not change significantly in any task.
+log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive1 (increase), and physical task (decrease).
+Sex, task order, and BMI were controlled, and were not significant predictors (age has little variability in the sample).
 
 ```{r}
-phys_std %>% 
-   select(id:recordingtime_s, eda_increase, rmssd, hr)
+heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
+
+phys_trans %>% 
+   select(id, marker, task_order, sex, bmi, heart_metrics) %>% 
+   pivot_longer(heart_metrics) %>% 
+   group_by(name) %>% 
+   nest() %>% 
+   mutate(model = map(data, 
+                      ~lmer(value ~ marker + 
+                            task_order + sex + scale(bmi) + (1|id), 
+                            data = .x))) %>% 
+   pull(model) %>% 
+   set_names(heart_metrics) %>% 
+   tab_model(dv.labels = heart_metrics,
+             show.loglik = TRUE,
+             show.aicc = TRUE)
+
 ```
 
 
 ## Electrodermal response
+### Variables
+Raw electrodermal response was decomposed to tonic (SCL) and phasic (SCR) components. SCL was calculated by using the exponential moving average of the EDA values. The SCR values were calculated by taking the difference of EDA and SCL.
+   We inspected the EDA, SCL, and SCR averages, and the increase value of these metrics. 
+   The averages were analyzed using linear mixed-effect models. The increase values are zero censored and heavily skewed, thus showing a gamma distribution. Therefore, we analyzed these values using generalized linear mixed-effect models, using a Gamma distribution with inverse link. 
+Data had to be transformed to be applicable for statistical modeling. Average values were log+1 transformed and centered. Increase values were centered, then multiplied by 1000 for easier interpretation, then 1 is added to values to be larger than zero. 
+
+### Results
+EDA and SCL average were significantly larger than baseline. Cognitive tasks were associated with a smaller increase, while the physical task was associated with a larger increase.
+For SCR average, none of the tasks exerted a significant effect.
+For the increase statistics, only the physical task showed significantly larger value than baseline.
+
+Sex, task order, and BMI were controlled, and were not significant predictors (age has little variability in the sample).
+
 
 ```{r}
-# TODO: estimates are not shown properly
-edai_mod <- 
-      glmer(I(eda_increase+1) ~ marker + (1|id),
-            family = Gamma(link = "log"), 
-            data = phys_data)
 
-summary(edai_mod)
-tab_model(edai_mod)
+skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
+skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
 
-lmer(scr_avg ~ marker + (1|id), data = phys_log) %>% 
-   summary()
+# LMEMs for average values
+skin_avg_mod <-
+   phys_trans %>% 
+   select(id, task_order, marker, sex, bmi, skin_avg) %>% 
+   pivot_longer(skin_avg) %>% 
+   # Center values
+   mutate(std_value = scale(value, scale = FALSE)) %>% 
+   group_by(name) %>% 
+   nest() %>% 
+   mutate(model = map(data, ~lmer(std_value ~ marker +
+                                  task_order + sex + scale(bmi) +
+                                  (1|id),
+                                  data = .x))) %>% 
+   pull(model) %>% 
+   set_names(skin_avg)
+
+# GLMEMs for increase values
+skin_increase_mod <-
+   phys_trans %>% 
+   select(id, marker, task_order, sex, bmi, skin_increase) %>% 
+   pivot_longer(skin_increase) %>% 
+   # Center, multiply by 1000, and add 1
+   mutate(std_value = scale(value, scale = FALSE)*1000+1) %>% 
+   group_by(name) %>% 
+   nest() %>% 
+   mutate( model = map(data, ~glmer(std_value ~ marker + task_order + sex +
+                                                scale(bmi) + (1|id),
+                                    family = Gamma(link = "inverse"),
+                                    data = .x))) %>% 
+   pull(model) %>% 
+   set_names(skin_increase)
+
+tab_model( c(skin_avg_mod, skin_increase_mod),
+           dv.labels = c(skin_avg, skin_increase),
+           show.loglik = TRUE,
+           show.aicc = TRUE)
+
+
 
 ```
-
-## Heart Rate and Heart rate variability (HRV)
-
-We use the log transformed HR, RMSSD and HF
-
-
-### HR
-```{r}
-hr_mod <- lmer(meanhr ~ marker + (1|id), data = phys_log)
-   
-summary(hr_mod)
-   
-```
-
-### RMSSD
-```{r}
-rmssd_mod <- lmer(rmssd ~ marker + (1|id), data = phys_log)
-   
-summary(rmssd_mod)
-   
-```
-
-### HF
-```{r}
-hf_mod <- lmer(hf_percent ~ marker + (1|id), data = phys_log)
-   
-summary(hf_mod)
-   
-```
-
