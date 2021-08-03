@@ -347,6 +347,25 @@ phys_trans %>%
 
 ```
 
+```{r}
+phys_trans %>% 
+   select(id, marker, task_order, sex, bmi, heart_metrics) %>% 
+   pivot_longer(all_of(heart_metrics), values_drop_na = TRUE) %>%
+   group_by(name, marker) %>% 
+   summarise(avg_value = mean(value),
+             se_value = sd(value)/sqrt(n()), 
+             .groups = "drop") %>% 
+   ggplot() +
+   aes(x = marker, y = avg_value, group = name,
+       ymin = avg_value - se_value, ymax = avg_value + se_value) +
+   geom_pointrange() +
+   geom_line(aes(color = name), size = 1.2, alpha = .6, show.legend = FALSE) +
+   facet_wrap(~name, scales = "free_y") +
+   labs(title = "Mean values of heart rate based variables by task",
+        y = "Mean value (SE)",
+        x = NULL)
+```
+
 
 ## Electrodermal response
 ### Variables
@@ -372,7 +391,7 @@ skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
 skin_avg_mod <-
    phys_trans %>% 
    select(id, task_order, marker, sex, bmi, skin_avg) %>% 
-   pivot_longer(skin_avg) %>% 
+   pivot_longer(all_of(skin_avg), values_drop_na = TRUE) %>% 
    # Center values
    mutate(std_value = scale(value, scale = FALSE)) %>% 
    group_by(name) %>% 
@@ -388,7 +407,7 @@ skin_avg_mod <-
 skin_increase_mod <-
    phys_trans %>% 
    select(id, marker, task_order, sex, bmi, skin_increase) %>% 
-   pivot_longer(skin_increase) %>% 
+   pivot_longer(all_of(skin_increase), values_drop_na = TRUE) %>% 
    # Center, multiply by 1000, and add 1
    mutate(std_value = scale(value, scale = FALSE)*1000+1) %>% 
    group_by(name) %>% 
@@ -405,6 +424,24 @@ tab_model( c(skin_avg_mod, skin_increase_mod),
            show.loglik = TRUE,
            show.aicc = TRUE)
 
+```
 
-
+```{r}
+phys_trans %>% 
+   select(id, marker, task_order, sex, bmi, skin_avg, skin_increase) %>% 
+   pivot_longer(c(skin_avg, skin_increase), values_drop_na = TRUE) %>%
+   group_by(name, marker) %>% 
+   summarise(avg_value = mean(value),
+             se_value = sd(value)/sqrt(n()), 
+             .groups = "drop") %>% 
+   ggplot() +
+   aes(x = marker, y = avg_value, group = name,
+       ymin = avg_value - se_value, ymax = avg_value + se_value) +
+   geom_pointrange() +
+   geom_line(aes(color = name), size = 1.2, alpha = .6, show.legend = FALSE) +
+   scale_color_viridis_d() +
+   facet_wrap(~name, scales = "free_y") +
+   labs(title = "Mean values of electrodermal variables by task",
+        y = "Mean value (SE)",
+        x = NULL)
 ```
