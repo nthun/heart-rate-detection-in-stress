@@ -40,6 +40,8 @@ theme_set(theme_light())
 ```{r}
 # Set parameters
 outlier_treshold_sd = 3 # Threshold for outliers in SD
+# Column order for model summaries
+col_order <- c("est", "ci", "df.error", "stat", "p")
 ```
 
 
@@ -371,6 +373,42 @@ phys_trans %>%
 
 ```
 
+```{r}
+#  Calculate reactivity statistics
+reactivity <-
+   phys_trans %>% 
+   select(id, marker, meanhr, hf_percent, rmssd, eda_avg) %>% 
+   pivot_wider(names_from = marker,
+               values_from = c("meanhr", "hf_percent", "rmssd","eda_avg")) %>% 
+   transmute(id,
+             #HR
+             meanhr_react_cognitive1 = meanhr_cognitive1 - meanhr_baseline,
+             meanhr_react_cognitive2 = meanhr_cognitive2 - meanhr_baseline,
+             meanhr_react_physical = meanhr_physical - meanhr_baseline,
+             # HF
+             hf.percent_react_cognitive1 = hf_percent_cognitive1 - hf_percent_baseline,
+             hf.percent_react_cognitive2 = hf_percent_cognitive2 - hf_percent_baseline,
+             hf.percent_react_physical = hf_percent_physical - hf_percent_baseline,
+             # RMSSD
+             rmssd_react_cognitive1 = rmssd_cognitive1 - rmssd_baseline,
+             rmssd_react_cognitive2 = rmssd_cognitive2 - rmssd_baseline,
+             rmssd_react_physical = rmssd_physical - rmssd_baseline,
+             #EDA
+             eda.avg_react_cognitive1 = eda_avg_cognitive1 - eda_avg_baseline,
+             eda.avg_react_cognitive2 = eda_avg_cognitive2 - eda_avg_baseline,
+             eda.avg_react_physical = eda_avg_physical - eda_avg_baseline)
+   
+reactivity %>% 
+   pivot_longer(-id) %>% 
+   ggplot() +
+   aes(x = value) +
+   geom_histogram() +
+   facet_wrap(~name, scales = "free", nrow = 4) +
+   labs(title = "Reactivity histograms of key metrics")
+
+```
+
+
 # Analysis of the effects of the tasks on physiological variables
 ## Heart rate related variables
 
@@ -534,6 +572,40 @@ phys_trans %>%
         color = "Task order")
 ```
 
+## Reactivity measures
+### Variables
+Reactivity (task - baseline) values were calculated for EDA average, HF%, RMSSD, and HR average. 
+
+### Results
+
+
+```{r}
+
+
+reactivity %>% 
+   pivot_longer(-id, values_drop_na = TRUE) %>% 
+   group_by(name) %>% 
+   summarise(avg = mean(value),
+             se = sd(value)/sqrt(n())) %>% 
+   separate(name, 
+            into = c("metric", "marker"), 
+            sep = "_",
+            extra = "merge") %>% 
+   mutate(marker = str_remove_all(marker, "react_")) %>% 
+   ggplot() +
+   aes(x = marker, y = avg, ymin = avg - se, ymax = avg + se, 
+       group = metric) +
+   geom_pointrange() +
+   geom_line(aes(color = metric), size = 1.2, alpha = .6, 
+             show.legend = FALSE) +
+   geom_hline(yintercept = 0, color = "red", lty = "dashed") +
+   facet_wrap(~metric, scales = "free") +
+   labs(title = "Reactivity measures: Difference from baseline by task",
+        subtitle = "Zero (dashed red line) shows baseline",
+        x = NULL,
+        y = "Mean (SD)")
+
+```
 
 
 # Hypothesis tests
@@ -543,17 +615,47 @@ phys_trans %>%
 ## H1
 There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
 
-The reaction to stress tasks is moderated by cardioceptive accuracy.
+### Verbatim solution
+
+We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
+```{r}
+react_vars <-
+   c(
+      "meanhr_cognitive1",
+      "meanhr_cognitive2",
+      "meanhr_physical",
+      "hf.percent_cognitive1",
+      "hf.percent_cognitive2",
+      "hf.percent_physical",
+      "rmssd_cognitive1",
+      "rmssd_cognitive2",
+      "rmssd_physical",
+      "eda.avg_cognitive1",
+      "eda.avg_cognitive2",
+      "eda.avg_physical"
+   )
+
+experiment %>% 
+   select(id, ca, cb, hrp) %>% 
+   left_join(reactivity, by = "id") %>% 
+   rename_with(~str_remove(., "react_")) %>% 
+   correlation(p_adjust = "fdr", 
+               select2 = c("ca", "cb", "hrp"),
+               select = all_of(react_vars)) %>% 
+   arrange(Parameter2) %>% 
+   print_html()
+```
+
+### Same thing, but more concise approach
+
+We built linear mixed-effect models with random intercept by person to investigate if cardioceptive accuracy/bias/heart rate perception moderates the response to stress in any of the tasks.
 
 ```{r}
-
 # Create moderation models
-col_order <- c("est", "ci", "df.error", "stat", "p")
-   
 cardioceptive_models <-
    phys_trans %>% 
    select(id, 
-          marker, meanhr, lg_hf_percent, lg_eda_avg, 
+          marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg, 
           ca, cb, hrp) %>% 
    pivot_longer(meanhr:lg_eda_avg) %>% 
    group_by(name) %>% 
@@ -568,23 +670,11 @@ cardioceptive_models <-
                          ~lmer(scale(value) ~ marker * scale(hrp) +
                               (1|id), data = .x)))
 
-
 cardioceptive_models$ca_model %>% 
    tab_model(dv.labels = cardioceptive_models$name,
              title = "Models for cardioceptive accuracy",
              col.order = col_order,
              show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
-
-phys_trans %>% 
-   ggplot() +
-   aes(x = ca, y = meanhr) +
-   geom_point() +
-   facet_wrap(~marker) +
-   geom_smooth(method = "lm") +
-   labs(title = "Association between cardioceptive accuracy and mean HR",
-        subtitle = "The correlation is similar in all tasks",
-        y = "Mean HR (bpm)",
-        x = "Cardioceptive accuracy")
 
 cardioceptive_models$cb_model %>% 
    tab_model(dv.labels = cardioceptive_models$name,
@@ -592,45 +682,34 @@ cardioceptive_models$cb_model %>%
              col.order = col_order,
              show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
 
-phys_trans %>% 
-   ggplot() +
-   aes(x = cb, y = meanhr) +
-   geom_point() +
-   facet_wrap(~marker) +
-   geom_smooth(method = "lm") +   
-   labs(title = "Association between cardioceptive bias and mean HR",
-        subtitle = "The correlation is similar in all tasks",
-        y = "Mean HR (bpm)",
-        x = "Cardioceptive bias")
-
 cardioceptive_models$hrp_model %>% 
    tab_model(dv.labels = cardioceptive_models$name,
              title = "Models for heart rate perception",
              col.order = col_order,
              show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
 
-phys_trans %>% 
-   ggplot() +
-   aes(x = hrp, y = meanhr) +
-   geom_point() +
-   facet_wrap(~marker) +
-   geom_smooth(method = "lm") +
-      labs(title = "Association between heart rate perception and mean HR",
-        subtitle = "The correlation is similar in all tasks",
-        y = "Mean HR (bpm)",
-        x = "Heart rate perception")
 
 ```
 
 ```{r}
-
-
-
-
-
-
+   phys_trans %>% 
+   select(meanhr, marker, ca, cb, hrp) %>% 
+   pivot_longer(ca:hrp) %>% 
+   ggplot() +
+   aes(x = value, y = meanhr, color = marker) +
+   geom_point(alpha = .6) +
+   facet_wrap(~marker) +
+   geom_smooth(method = "lm", alpha = .6, size = 1.2, 
+               se = FALSE, alpha = .6) +
+   scale_color_viridis_d() +
+      labs(title = "Association between cardioceptive metrics and mean HR",
+        subtitle = "The correlation is similar in all tasks",
+        caption = "Notes: ca: cadioceptive accuracy, cb: cardioceptive bias, hrp: heart rate perception",
+        color = "Task",
+        y = "Mean HR (bpm)",
+        x = NULL) +
+   facet_wrap(~name, scales = "free_x")
 ```
-
 
 ## H2
 Cardioceptive accuracy [cardioceptive_accuracy] moderates the association between objective [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical] and subjective reactions to stress [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before]; higher cardioceptive accuracy is related to a stronger association
@@ -661,7 +740,8 @@ There is a positive correlation between cardioceptive accuracy, caridoceptive bi
 
 ```{r}
 
-correlation(phys_trans, select = c("ca", "cb", "hrp"),
+correlation(phys_trans, 
+            select = c("ca", "cb", "hrp"),
             p_adjust = "fdr") %>% 
    print_html()
 
