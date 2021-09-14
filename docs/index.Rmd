@@ -67,11 +67,11 @@ phys_data <- read_csv(here::here("data/08_summarised/phys_long.csv"))
 # Experiment data processing
 ## Calculate cardioreceptive metrics
 
-Cardioreceptive accuracy, bias, and heart rate perception were calculated using the formulas: 
+Cardioreceptive accuracy, bias, and heart rate perception were calculated using the formulas:  
 
-ca_ = 1 - |(hr_XXobj - hr_XXszubj)/ hr_XXobj| 
-cb_ = (hr_XXszubj – hr_XXobj) / hr_XXobj 
-hrp = resting_hr_estimated / resting_hr 
+- ca_ = 1 - |(hr_XXobj - hr_XXszubj)/ hr_XXobj| 
+- cb_ = (hr_XXszubj – hr_XXobj) / hr_XXobj 
+- hrp = resting_hr_estimated / resting_hr 
 
 XX stands for 25,35,50
 With the average calculated for each pearson. 
@@ -344,6 +344,7 @@ outlier_flagged %>%
 We remove outliers, and apply natural log+1 transformation on the values. Values show that the EDA and SCR increase variables should be analyzed using a GLM with exponential distribution.
 
 ```{r}
+
 phys_trans <-
    outlier_flagged %>% 
    # Remove outliers
@@ -405,6 +406,12 @@ reactivity %>%
    geom_histogram() +
    facet_wrap(~name, scales = "free", nrow = 4) +
    labs(title = "Reactivity histograms of key metrics")
+
+```
+
+## TODO: Missing data analysis
+
+```{r}
 
 ```
 
@@ -736,11 +743,12 @@ Perceived HR in both conditions [mental_experienced_HR_change; physical_experien
 ## H5
 Acuity of perception of heartbeat [cardioceptive_bias] and heart rate [cardioceptive_accuracy_HR] are positively associated
 
-There is a positive correlation between cardioceptive accuracy, caridoceptive bias, and heart rate perception.
+There is a positive correlation between cardioceptive accuracy, caridoceptive bias, but not between cardioceptive metrics and heart rate perception.
 
 ```{r}
-
-correlation(phys_trans, 
+phys_trans %>% 
+   distinct(id, .keep_all = TRUE) %>%
+correlation(
             select = c("ca", "cb", "hrp"),
             p_adjust = "fdr") %>% 
    print_html()
