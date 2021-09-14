@@ -426,20 +426,20 @@ Heart rate and HRV variables were investigated using linear mixed-effect models,
 HR was increased in the physical task compared to baseline.
 log(RMSSD) did not change significantly in any task.
 log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive1 (increase), and physical task (decrease).
-Sex, task order, and BMI were controlled, and were not significant predictors (age has little variability in the sample).
+Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
 ```{r}
 heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
 
 phys_trans %>% 
-   select(id, marker, task_order, sex, bmi, 
+   select(id, marker, task_order, sex, bodyfat_percent, 
           all_of(heart_metrics)) %>% 
    pivot_longer(all_of(heart_metrics)) %>% 
    group_by(name) %>% 
    nest() %>% 
    mutate(model = map(data, 
                       ~lmer(value ~ marker + 
-                            task_order + sex + scale(bmi) + (1|id), 
+                            task_order + sex + scale(bodyfat_percent) + (1|id), 
                             data = .x))) %>% 
    pull(model) %>% 
    set_names(heart_metrics) %>% 
@@ -453,7 +453,7 @@ phys_trans %>%
 
 ```{r}
 phys_trans %>% 
-   select(id, marker, task_order, sex, bmi, 
+   select(id, marker, task_order, sex, bodyfat_percent, 
           all_of(heart_metrics)) %>% 
    pivot_longer(all_of(heart_metrics), values_drop_na = TRUE) %>%
    group_by(name, marker) %>% 
@@ -484,7 +484,7 @@ EDA and SCL average were significantly larger than baseline. Cognitive tasks wer
 For SCR average, none of the tasks exerted a significant effect.
 For the increase statistics, only the physical task showed significantly larger value than baseline.
 
-Sex, task order, and BMI were controlled, and were not significant predictors (age has little variability in the sample).
+Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
 
 ```{r}
@@ -495,14 +495,14 @@ skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
 # LMEMs for average values
 skin_avg_mod <-
    phys_trans %>% 
-   select(id, task_order, marker, sex, bmi, all_of(skin_avg)) %>% 
+   select(id, task_order, marker, sex, bodyfat_percent, all_of(skin_avg)) %>% 
    pivot_longer(all_of(skin_avg), values_drop_na = TRUE) %>% 
    # Center values
    mutate(std_value = scale(value, scale = FALSE)) %>% 
    group_by(name) %>% 
    nest() %>% 
    mutate(model = map(data, ~lmer(std_value ~ marker +
-                                  task_order + sex + scale(bmi) +
+                                  task_order + sex + scale(bodyfat_percent) +
                                   (1|id),
                                   data = .x))) %>% 
    pull(model) %>% 
@@ -511,14 +511,14 @@ skin_avg_mod <-
 # GLMEMs for increase values
 skin_increase_mod <-
    phys_trans %>% 
-   select(id, marker, task_order, sex, bmi, all_of(skin_increase)) %>% 
+   select(id, marker, task_order, sex, bodyfat_percent, all_of(skin_increase)) %>% 
    pivot_longer(all_of(skin_increase), values_drop_na = TRUE) %>% 
    # Center, multiply by 1000, and add 1
    mutate(std_value = scale(value, scale = FALSE)*1000+1) %>% 
    group_by(name) %>% 
    nest() %>% 
    mutate( model = map(data, ~glmer(std_value ~ marker + task_order + sex +
-                                                scale(bmi) + (1|id),
+                                                scale(bodyfat_percent) + (1|id),
                                     family = Gamma(link = "inverse"),
                                     data = .x))) %>% 
    pull(model) %>% 
@@ -533,7 +533,7 @@ tab_model( c(skin_avg_mod, skin_increase_mod),
 
 ```{r}
 phys_trans %>% 
-   select(id, marker, task_order, sex, bmi, 
+   select(id, marker, task_order, sex, bodyfat_percent, 
           all_of(skin_avg), all_of(skin_increase)) %>% 
    pivot_longer(c(all_of(skin_avg), all_of(skin_increase)), values_drop_na = TRUE) %>%
    group_by(name, marker) %>% 
@@ -559,7 +559,7 @@ phys_trans %>%
 # Overall, EDA or SCL average should be used as the sypmathetic marker.
 
 phys_trans %>% 
-   select(id, marker, task_order, sex, bmi, 
+   select(id, marker, task_order, sex, bodyfat_percent, 
           all_of(skin_avg), all_of(skin_increase)) %>% 
    pivot_longer(c(all_of(skin_avg), all_of(skin_increase)), values_drop_na = TRUE) %>%
    group_by(name, task_order, marker) %>% 
