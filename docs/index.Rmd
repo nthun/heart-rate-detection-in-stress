@@ -71,7 +71,7 @@ phys_data <- read_csv(here::here("data/08_summarised/phys_long.csv"))
 Cardioreceptive accuracy, bias, and heart rate perception were calculated using the formulas:  
 
 - ca_ = 1 - |(hr_XXobj - hr_XXszubj)/ hr_XXobj| 
-- cb_ = (hr_XXszubj – hr_XXobj) / hr_XXobj 
+- cb_ = (hr_XXszubj â€“ hr_XXobj) / hr_XXobj 
 - hrp = resting_hr_estimated / resting_hr 
 
 XX stands for 25,35,50
@@ -643,6 +643,7 @@ reactivity %>%
 ## H1
 There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
 
+
 ### Verbatim solution
 
 We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
@@ -744,9 +745,60 @@ phys_trans %>%
 ## H2
 Cardioceptive accuracy [cardioceptive_accuracy] moderates the association between objective [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical] and subjective reactions to stress [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before]; higher cardioceptive accuracy is related to a stronger association
 
-```{r}
 
-# reactivity %>% 
+```{r}
+hypo2 <-
+   reactivity %>% 
+   # Put all reactivity metrics and cardioceptive metrics together
+   left_join(select(experiment, id, ca, hrp), by = "id") %>%
+   # Create a redundant dataset to run several regressions at once
+   pivot_longer(-c(id, ca, hrp, stai_react_cognitive, stai_react_physical),
+                names_to = c("metric","task"),
+                names_pattern = "(.*)_react_(.*)") %>% 
+   group_by(metric, task) %>% 
+   # Scale all numeric vaiarables (by metric and task)
+   mutate(across(c(stai_react_cognitive:hrp, value), 
+                 ~scale(.x) %>% 
+                  as.numeric())) %>% 
+   nest() %>% 
+   # Create several models for different cardioceptive metrics and tasks
+   mutate(ca_cognitive_mod = map(data, 
+                            ~lm(value ~ stai_react_cognitive * ca, data = .x)),
+          hrp_cognitive_mod = map(data, 
+                            ~lm(value ~ stai_react_cognitive * hrp, data = .x)),
+          ca_physical_mod = map(data, 
+                            ~lm(value ~ stai_react_physical * ca, data = .x)),
+          hrp_physical_mod = map(data, 
+                            ~lm(value ~ stai_react_physical * hrp, data = .x))
+   ) %>% 
+   # Drop all models where the physiological and subjective task doesn't mach
+   pivot_longer(ca_cognitive_mod:hrp_physical_mod) %>% 
+   filter((str_detect(task, "cognitive") & str_detect(name, "cognitive")) |
+          (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
+   unite("metric_task", metric, task)
+
+# Prit all models
+hypo2 %>% 
+   pull(value) %>% 
+   set_names(hypo2$metric_task) %>% 
+   map(tidy, conf.int = TRUE) %>% 
+   map(~mutate(.x, cr = case_when(str_detect(term, "ca$") ~ "ca", 
+                                     str_detect(term, "hrp$") ~ "hrp"))) %>% 
+   map(~fill(.x, cr, .direction = "up")) %>% 
+   bind_rows(.id = "model") %>% 
+   separate(model, into = c("metric", "task"), sep = "_") %>% 
+   group_by(metric, task, cr) %>% 
+   select(metric, task, cr, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   )
 
 ```
 
@@ -754,12 +806,14 @@ Cardioceptive accuracy [cardioceptive_accuracy] moderates the association betwee
 ## H3
 Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
 
+
 ```{r}
 
 ```
 
 ## H4 
 Perceived HR in both conditions [mental_experienced_HR_change; physical_experienced_HR_change] is predicted by actual change [ΔHRmental, ΔHRphysical] and HR-related expectations [mental_expected_HR_change; physical_expected_HR_change] in both conditions
+
 
 ```{r}
 
