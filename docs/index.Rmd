@@ -29,6 +29,7 @@ library(stringi)
 library(gt)
 library(ggbeeswarm)
 library(correlation)
+library(naniar)
 
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
                       fig.width = 9, fig.height = 6)
@@ -186,15 +187,24 @@ We tested if the tasks were perceived as stressful.
 Controlling for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
 
 ```{r}
+# Calculate STAI-S reactivity
+stai_reactivity <-
+   experiment %>% 
+   select(id, stai_s_mental_t0_sum,  stai_s_mental_t1_sum, stai_s_physical_t0_sum, stai_s_physical_t1_sum) %>% 
+   transmute(id,
+             stai_react_cognitive = stai_s_mental_t1_sum - stai_s_mental_t0_sum,
+             stai_react_physical = stai_s_physical_t1_sum - stai_s_physical_t0_sum)
 
+   
 stai <-
    experiment %>% 
    select(id, ends_with("_sum"), task_order) %>% 
-   pivot_longer(cols = -c(id, stai_s_t0_sum, task_order)) %>% 
-   extract(name, 
-           into = c("task", "time"), 
-           regex = "stai_s_(.*)_(.*)_sum") %>% 
+   pivot_longer(cols = -c(id, stai_s_t0_sum, task_order),
+                names_to = c("task", "time"),
+                names_pattern = "stai_s_(.*)_(.*)_sum") %>% 
    mutate(task = str_to_title(task))
+
+stai_change = 
 
 stai_sum <- 
    stai %>% 
@@ -374,6 +384,10 @@ phys_trans %>%
 
 ```
 
+## Calculate physiological reactivity metrics
+
+Reactivity values were calculated for HR, HF%, RMSSD, and EDA, by subtracting the baseline (t0) from the post-stress measurement (t1) for each task.
+
 ```{r}
 #  Calculate reactivity statistics
 reactivity <-
@@ -397,7 +411,8 @@ reactivity <-
              #EDA
              eda.avg_react_cognitive1 = eda_avg_cognitive1 - eda_avg_baseline,
              eda.avg_react_cognitive2 = eda_avg_cognitive2 - eda_avg_baseline,
-             eda.avg_react_physical = eda_avg_physical - eda_avg_baseline)
+             eda.avg_react_physical = eda_avg_physical - eda_avg_baseline) %>% 
+   left_join(stai_reactivity, by = "id")
    
 reactivity %>% 
    pivot_longer(-id) %>% 
@@ -409,9 +424,15 @@ reactivity %>%
 
 ```
 
-## TODO: Missing data analysis
+## Missing data analysis
 
 ```{r}
+
+phys_data %>% 
+   select(eda_avg:hf_abs) %>% 
+   group_by() %>% 
+   miss_var_summary() %>% 
+   print(n = 100)
 
 ```
 
@@ -581,7 +602,7 @@ phys_trans %>%
 
 ## Reactivity measures
 ### Variables
-Reactivity (task - baseline) values were calculated for EDA average, HF%, RMSSD, and HR average. 
+Reactivity (task - baseline) values were calculated for EDA average, HF%, RMSSD, HR average, and STAI. 
 
 ### Results
 
@@ -639,7 +660,9 @@ react_vars <-
       "rmssd_physical",
       "eda.avg_cognitive1",
       "eda.avg_cognitive2",
-      "eda.avg_physical"
+      "eda.avg_physical",
+      "stai_cognitive",
+      "stai_physical"
    )
 
 experiment %>% 
@@ -653,7 +676,7 @@ experiment %>%
    print_html()
 ```
 
-### Same thing, but more concise approach
+### Same thing, but more contemporary approach
 
 We built linear mixed-effect models with random intercept by person to investigate if cardioceptive accuracy/bias/heart rate perception moderates the response to stress in any of the tasks.
 
@@ -699,7 +722,7 @@ cardioceptive_models$hrp_model %>%
 ```
 
 ```{r}
-   phys_trans %>% 
+phys_trans %>% 
    select(meanhr, marker, ca, cb, hrp) %>% 
    pivot_longer(ca:hrp) %>% 
    ggplot() +
@@ -722,6 +745,8 @@ cardioceptive_models$hrp_model %>%
 Cardioceptive accuracy [cardioceptive_accuracy] moderates the association between objective [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical] and subjective reactions to stress [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before]; higher cardioceptive accuracy is related to a stronger association
 
 ```{r}
+
+# reactivity %>% 
 
 ```
 
