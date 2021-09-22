@@ -204,8 +204,6 @@ stai <-
                 names_pattern = "stai_s_(.*)_(.*)_sum") %>% 
    mutate(task = str_to_title(task))
 
-stai_change = 
-
 stai_sum <- 
    stai %>% 
    group_by(task, time) %>% 
@@ -745,31 +743,45 @@ phys_trans %>%
 ## H2
 Cardioceptive accuracy [cardioceptive_accuracy] moderates the association between objective [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical] and subjective reactions to stress [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before]; higher cardioceptive accuracy is related to a stronger association
 
+We fitted linear regressions on the reactivity score for each metric (HR mean, HF%, RMSSD, and EDA mean) for each task (cognitive1, cognitive2, and physical). We investigated if the STAI-S change in the respective task had a significant association with the change metric, and if the cardioceptive accuracy or heart rate perception moderated the association. We included sex, body fat percent, and task order as covariates.
+
+We found a significant positive association between the reactivity of RMSSD in the cognitive task and the change in STAI. The higher the perceived stress was, the more the RMSSD increased in the cognitive task.
+
+We found a significant negative association between the reactivity of EDA mean in the cognitive task and the change in STAI. The higher the perceived stress was, the more the EDA mean decreased in the cognitive task.
+
 
 ```{r}
 hypo2 <-
    reactivity %>% 
    # Put all reactivity metrics and cardioceptive metrics together
-   left_join(select(experiment, id, ca, hrp), by = "id") %>%
+   left_join(select(experiment, id, ca, hrp, bodyfat_percent, sex, task_order), by = "id") %>%
    # Create a redundant dataset to run several regressions at once
-   pivot_longer(-c(id, ca, hrp, stai_react_cognitive, stai_react_physical),
+   pivot_longer(-c(id, ca, hrp, bodyfat_percent, sex, stai_react_cognitive, stai_react_physical, task_order),
                 names_to = c("metric","task"),
                 names_pattern = "(.*)_react_(.*)") %>% 
    group_by(metric, task) %>% 
    # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(stai_react_cognitive:hrp, value), 
+   mutate(across(c(stai_react_cognitive:bodyfat_percent, value), 
                  ~scale(.x) %>% 
                   as.numeric())) %>% 
    nest() %>% 
    # Create several models for different cardioceptive metrics and tasks
    mutate(ca_cognitive_mod = map(data, 
-                            ~lm(value ~ stai_react_cognitive * ca, data = .x)),
+                            ~lm(value ~ stai_react_cognitive * ca +
+                                        bodyfat_percent + sex + task_order, 
+                                data = .x)),
           hrp_cognitive_mod = map(data, 
-                            ~lm(value ~ stai_react_cognitive * hrp, data = .x)),
+                            ~lm(value ~ stai_react_cognitive * hrp +
+                                        bodyfat_percent + sex + task_order, 
+                                data = .x)),
           ca_physical_mod = map(data, 
-                            ~lm(value ~ stai_react_physical * ca, data = .x)),
+                            ~lm(value ~ stai_react_physical * ca +
+                                         bodyfat_percent + sex + task_order, 
+                                data = .x)),
           hrp_physical_mod = map(data, 
-                            ~lm(value ~ stai_react_physical * hrp, data = .x))
+                            ~lm(value ~ stai_react_physical * hrp +
+                                        bodyfat_percent + sex + task_order, 
+                                data = .x))
    ) %>% 
    # Drop all models where the physiological and subjective task doesn't mach
    pivot_longer(ca_cognitive_mod:hrp_physical_mod) %>% 
@@ -777,7 +789,7 @@ hypo2 <-
           (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
    unite("metric_task", metric, task)
 
-# Prit all models
+# Print all models
 hypo2 %>% 
    pull(value) %>% 
    set_names(hypo2$metric_task) %>% 
@@ -802,6 +814,33 @@ hypo2 %>%
 
 ```
 
+```{r}
+hypo2 %>% 
+   filter(metric_task %in% c("rmssd_cognitive1") &
+          str_detect(name, "ca")) %>% 
+   select(-value) %>% 
+   unnest(data) %>% 
+   ggplot() +
+   aes(x = stai_react_cognitive, y = value) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   labs(title = "The association beween STAI change and RMSSD reactivity in the cognitive task",
+        x = "STAI-S change",
+        y = "RMSSD reactivity")
+
+hypo2 %>% 
+   filter(metric_task %in% c("eda.avg_cognitive1") &
+          str_detect(name, "ca")) %>% 
+   select(-value) %>% 
+   unnest(data) %>% 
+   ggplot() +
+   aes(x = stai_react_cognitive, y = value) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   labs(title = "The association beween STAI change and EDA mean reactivity in the cognitive task",
+        x = "STAI-S change",
+        y = "EDA mean reactivity")
+```
 
 ## H3
 Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
@@ -817,6 +856,63 @@ Perceived HR in both conditions [mental_experienced_HR_change; physical_experien
 
 ```{r}
 
+hypo4 <-
+   reactivity %>% 
+   select(id, starts_with("meanhr_")) %>% 
+   # Put HR reactivity metrics expected and experienced change together
+   left_join(select(experiment, id, 
+                    physical_expected_hr_change,
+                    physical_experienced_hr_change,
+                    mental_expected_hr_change,
+                    mental_experienced_hr_change, 
+                    bodyfat_percent, sex, task_order), by = "id") %>% 
+   # Create a redundant dataset to run several regressions at once
+   pivot_longer(c(meanhr_react_cognitive1:meanhr_react_physical),
+                names_to = c("metric","task"),
+                names_pattern = "(.*)_react_(.*)") %>% 
+      group_by(metric, task) %>% 
+   # Scale all numeric vaiarables (by metric and task)
+   mutate(across(c(physical_expected_hr_change:bodyfat_percent, value), 
+                 ~scale(.x) %>% 
+                  as.numeric())) %>% 
+   nest() %>% 
+   # Create different models
+   mutate(physical_mod = map(data, 
+                            ~lm(value ~ physical_expected_hr_change +
+                                        physical_experienced_hr_change +
+                                        bodyfat_percent + sex + task_order, 
+                                data = .x)),
+          cognitive_mod = map(data, 
+                            ~lm(value ~ mental_expected_hr_change +
+                                        mental_experienced_hr_change +
+                                        bodyfat_percent + sex + task_order, 
+                                data = .x))
+          ) %>% 
+   pivot_longer(cognitive_mod:physical_mod) %>% 
+   filter((str_detect(task, "cognitive") & str_detect(name, "cognitive")) |
+          (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
+   unite("metric_task", metric, task)
+
+hypo4 %>% 
+   pull(value) %>% 
+   set_names(hypo4$metric_task) %>% 
+   map(tidy, conf.int = TRUE) %>% 
+   bind_rows(.id = "model") %>% 
+   separate(model, into = c("metric", "task"), sep = "_") %>% 
+   group_by(metric, task) %>% 
+   select(metric, task, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   )
+
+
 ```
 
 ## H5
@@ -827,9 +923,9 @@ There is a positive correlation between cardioceptive accuracy, caridoceptive bi
 ```{r}
 phys_trans %>% 
    distinct(id, .keep_all = TRUE) %>%
-correlation(
-            select = c("ca", "cb", "hrp"),
-            p_adjust = "fdr") %>% 
+   correlation(
+               select = c("ca", "cb", "hrp"),
+               p_adjust = "fdr") %>% 
    print_html()
 
 ```
