@@ -30,6 +30,7 @@ library(gt)
 library(ggbeeswarm)
 library(correlation)
 library(naniar)
+library(patchwork)
 
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
                       fig.width = 9, fig.height = 6)
@@ -859,7 +860,7 @@ We found that actual HR change did not predict the experienced HR change in any 
 
 
 ```{r}
-
+# Build models
 hypo4 <-
    reactivity %>% 
    select(id, starts_with("meanhr_")) %>% 
@@ -908,7 +909,8 @@ hypo4 <-
    pivot_longer(physical_by_expected:cognitive_by_react) %>% 
    filter((str_detect(task, "cognitive") & str_detect(name, "cognitive")) |
           (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
-   mutate(name = str_replace(name, "cognitive", task))
+   mutate(name = str_replace(name, "cognitive", task)) %>% 
+   ungroup()
 
 hypo4 %>% 
    pull(value) %>% 
@@ -930,6 +932,55 @@ hypo4 %>%
 
 
 ```
+
+```{r}
+# Plot associations
+hypo4_plots <- 
+   hypo4 %>% 
+   distinct(task, .keep_all = TRUE) %>% 
+   select(task, data) %>% 
+   mutate(physical_ract_plot = map(data,
+                                   ~ggplot(.x) +
+                                    aes(x = hr_reactivity,
+                                        y = physical_experienced_hr_change) +
+                                    geom_point(alpha = .3) +
+                                    geom_smooth(method = "lm")),
+          cognitive_ract_plot = map(data,
+                                   ~ggplot(.x) +
+                                    aes(x = hr_reactivity,
+                                        y = mental_experienced_hr_change) +
+                                    geom_point(alpha = .3) +
+                                    geom_smooth(method = "lm")),
+          physical_expected_plot = map(data,
+                                   ~ggplot(.x) +
+                                    aes(x = physical_expected_hr_change,
+                                        y = physical_experienced_hr_change) +
+                                    geom_point(alpha = .3) +
+                                    geom_smooth(method = "lm")),
+          cognitive_expected_plot = map(data,
+                                   ~ggplot(.x) +
+                                    aes(x = mental_expected_hr_change,
+                                        y = mental_experienced_hr_change) +
+                                    geom_point(alpha = .3) +
+                                    geom_smooth(method = "lm"))
+          ) %>% 
+   pivot_longer(physical_ract_plot:cognitive_expected_plot,
+                values_to = "plots") %>% 
+   filter((str_detect(task, "cognitive") & str_detect(name, "cognitive")) |
+          (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
+   mutate(name = str_replace(name, "cognitive", task)) %>% 
+   ungroup() %>% 
+   mutate(plots = map2(plots, name,
+                       ~.x +
+                       labs(subtitle = .y)))
+   
+
+wrap_plots(hypo4_plots$plots) + 
+   plot_annotation(title = "Association of experienced HR change with actual and expected HR change in different tasks",
+                   subtitle = "Actual HR change did not predict the experienced HR change in any of the tasks.\nHowever, expected HR change significantly predicted subjective HR change in all tasks.")
+
+```
+
 
 ## H5
 Acuity of perception of heartbeat [cardioceptive_bias] and heart rate [cardioceptive_accuracy_HR] are positively associated
