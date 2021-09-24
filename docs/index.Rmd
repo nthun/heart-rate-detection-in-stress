@@ -853,6 +853,10 @@ Perceived stress in both conditions [mental_experienced_stress; physical_experie
 ## H4 
 Perceived HR in both conditions [mental_experienced_HR_change; physical_experienced_HR_change] is predicted by actual change [ΔHRmental, ΔHRphysical] and HR-related expectations [mental_expected_HR_change; physical_expected_HR_change] in both conditions
 
+We fitted linear regressions on the experienced (subjective) HR change for each task (cognitive1, cognitive2, and physical). We investigated if actual (ECG measured) HR change in the respective tasks predicted subjective HR change, and if expectations predicted subjective HT change better. We included sex, body fat percent, and task order as covariates.
+
+We found that actual HR change did not predict the experienced HR change in any of the tasks. However, expected HR change significantly predicted subjective HR change in all tasks.
+
 
 ```{r}
 
@@ -869,38 +873,50 @@ hypo4 <-
    # Create a redundant dataset to run several regressions at once
    pivot_longer(c(meanhr_react_cognitive1:meanhr_react_physical),
                 names_to = c("metric","task"),
-                names_pattern = "(.*)_react_(.*)") %>% 
+                names_pattern = "(.*)_react_(.*)",
+                values_to = "hr_reactivity") %>% 
       group_by(metric, task) %>% 
    # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(physical_expected_hr_change:bodyfat_percent, value), 
+   mutate(across(c(physical_expected_hr_change:bodyfat_percent, hr_reactivity), 
                  ~scale(.x) %>% 
                   as.numeric())) %>% 
    nest() %>% 
-   # Create different models
-   mutate(physical_mod = map(data, 
-                            ~lm(value ~ physical_expected_hr_change +
-                                        physical_experienced_hr_change +
-                                        bodyfat_percent + sex + task_order, 
+   # Create different models with and without expected variable
+   mutate(physical_by_expected = map(data, 
+                            ~lm(physical_experienced_hr_change ~ 
+                                physical_expected_hr_change +
+                                bodyfat_percent + sex + task_order, 
                                 data = .x)),
-          cognitive_mod = map(data, 
-                            ~lm(value ~ mental_expected_hr_change +
-                                        mental_experienced_hr_change +
-                                        bodyfat_percent + sex + task_order, 
+          cognitive_by_expected = map(data, 
+                            ~lm(mental_experienced_hr_change ~ 
+                                mental_expected_hr_change +
+                                bodyfat_percent + sex + task_order, 
+                                data = .x)),
+          physical_by_react = map(data, 
+                            ~lm(physical_experienced_hr_change ~ 
+                                hr_reactivity +
+                                bodyfat_percent + sex + task_order, 
+                                data = .x)),
+          cognitive_by_react = map(data, 
+                            ~lm(mental_experienced_hr_change ~ 
+                                hr_reactivity +
+                                bodyfat_percent + sex + task_order, 
                                 data = .x))
+
+          
           ) %>% 
-   pivot_longer(cognitive_mod:physical_mod) %>% 
+   pivot_longer(physical_by_expected:cognitive_by_react) %>% 
    filter((str_detect(task, "cognitive") & str_detect(name, "cognitive")) |
           (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
-   unite("metric_task", metric, task)
+   mutate(name = str_replace(name, "cognitive", task))
 
 hypo4 %>% 
    pull(value) %>% 
-   set_names(hypo4$metric_task) %>% 
+   set_names(hypo4$name) %>% 
    map(tidy, conf.int = TRUE) %>% 
    bind_rows(.id = "model") %>% 
-   separate(model, into = c("metric", "task"), sep = "_") %>% 
-   group_by(metric, task) %>% 
-   select(metric, task, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   group_by(model) %>% 
+   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
    gt() %>% 
    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
    fmt_number(c("statistic", "p.value"), decimals = 3) %>%
