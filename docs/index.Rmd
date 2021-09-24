@@ -796,7 +796,7 @@ hypo2 %>%
    set_names(hypo2$metric_task) %>% 
    map(tidy, conf.int = TRUE) %>% 
    map(~mutate(.x, cr = case_when(str_detect(term, "ca$") ~ "ca", 
-                                     str_detect(term, "hrp$") ~ "hrp"))) %>% 
+                                  str_detect(term, "hrp$") ~ "hrp"))) %>% 
    map(~fill(.x, cr, .direction = "up")) %>% 
    bind_rows(.id = "model") %>% 
    separate(model, into = c("metric", "task"), sep = "_") %>% 
@@ -846,15 +846,76 @@ hypo2 %>%
 ## H3
 Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
 
+We fitted linear regressions for each task (cognitive1, cognitive2, and physical) separately. We investigated if physiological changes, cardioceptive accuracy, or expected HR change predicted STAI-S change in the respective tasks. We used task order as a covariate. 
+
+We found no associations between cardioceptive accuracy and STAI-S change.
+Expected HR change did predict STAI-S change in all cognitive tasks.
+From the physiological measures, only RMSSD predicted STAI-S change.
 
 ```{r}
+hypo3 <-
+   reactivity %>% 
+   left_join(select(experiment, 
+                    id, ca, hrp, 
+                    task_order,
+                    physical_expected_hr_change,
+                    mental_expected_hr_change),
+                    by = "id") %>%
+   pivot_longer(meanhr_react_cognitive1:eda.avg_react_physical,
+                names_pattern = "(.*)_react_(.*)",
+                names_to = c("metric", "task")) %>% 
+   group_by(metric, task) %>% 
+   # Scale all numeric vaiarables (by metric and task)
+   mutate(across(c(stai_react_cognitive:ca,
+                   physical_expected_hr_change:mental_expected_hr_change,
+                   value), 
+                 ~scale(.x) %>% 
+                  as.numeric())) %>%    
+   nest() %>% 
+   mutate(cognitive_stai_react = map(data, 
+                                     ~lm(stai_react_cognitive ~ ca + 
+                                         mental_expected_hr_change + 
+                                         task_order +
+                                         value,
+                                         data = .x)),
+          physical_stai_react = map(data, 
+                                     ~lm(stai_react_physical ~ ca + 
+                                         physical_expected_hr_change + 
+                                         task_order + 
+                                         value,
+                                         data = .x))) %>% 
+   pivot_longer(cognitive_stai_react:physical_stai_react) %>% 
+      filter((str_detect(task, "cognitive") & str_detect(name, "cognitive")) |
+          (str_detect(task, "physical") & str_detect(name, "physical"))) %>% 
+   mutate(name = str_replace(name, "cognitive", task)) %>% 
+   mutate(name = str_replace(name, "react", metric)) %>% 
+   ungroup()
+   
+hypo3 %>% 
+   pull(value) %>% 
+   set_names(hypo3$name) %>% 
+   map_dfr(tidy, conf.int = TRUE, .id = "model") %>% 
+   group_by(model) %>% 
+   mutate(metric = str_match(model, ".*_(.*)$")[,2],
+          term = str_replace(term, "value", metric)) %>% 
+   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   )   
 
 ```
 
 ## H4 
 Perceived HR in both conditions [mental_experienced_HR_change; physical_experienced_HR_change] is predicted by actual change [ΔHRmental, ΔHRphysical] and HR-related expectations [mental_expected_HR_change; physical_expected_HR_change] in both conditions
 
-We fitted linear regressions on the experienced (subjective) HR change for each task (cognitive1, cognitive2, and physical). We investigated if actual (ECG measured) HR change in the respective tasks predicted subjective HR change, and if expectations predicted subjective HT change better. We included sex, body fat percent, and task order as covariates.
+We fitted linear regressions for each task (cognitive1, cognitive2, and physical) separately. We investigated if actual (ECG measured) HR change in the respective tasks predicted subjective HR change, and if expectations predicted subjective HR change better. We included sex, body fat percent, and task order as covariates.
 
 We found that actual HR change did not predict the experienced HR change in any of the tasks. However, expected HR change significantly predicted subjective HR change in all tasks.
 
