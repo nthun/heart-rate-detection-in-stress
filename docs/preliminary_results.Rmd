@@ -1,5 +1,5 @@
 ---
-title: "Heart rate detection and stress"
+title: "Heart rate detection and stress - Preliminary result document"
 author: "Tamas Nagy"
 date: "`r Sys.Date()`"
 output: 
@@ -62,7 +62,7 @@ experiment_data_raw <-
   janitor::clean_names() %>% 
   mutate(code = as.character(code))
 
-phys_data <- read_csv(here::here("data/08_summarised/phys_long_merged.csv"))
+phys_data <- read_csv(here::here("data/08_summarised/phys_long.csv"))
 
 ```
 
@@ -72,6 +72,7 @@ phys_data <- read_csv(here::here("data/08_summarised/phys_long_merged.csv"))
 Cardioreceptive accuracy, bias, and heart rate perception were calculated using the formulas:  
 
 - ca_ = 1 - |(hr_XXobj - hr_XXszubj)/ hr_XXobj| 
+- cb_ = (hr_XXszubj â€“ hr_XXobj) / hr_XXobj 
 - hrp = resting_hr_estimated / resting_hr 
 
 XX stands for 25,35,50
@@ -87,7 +88,11 @@ cardio <-
              ca_25 = 1 - abs((hr_25obj - hr_25szubj) / hr_25obj),
              ca_35 = 1 - abs((hr_35obj - hr_35szubj) / hr_35obj),
              ca_50 = 1 - abs((hr_50obj - hr_50szubj) / hr_50obj),
+             cb_25 = (hr_25szubj - hr_25obj) / hr_25obj,
+             cb_35 = (hr_35szubj - hr_35obj) / hr_35obj,
+             cb_50 = (hr_50szubj - hr_50obj) / hr_50obj,
              ca = (ca_25 + ca_35 + ca_50)/3,
+             cb = (cb_25 + cb_35 + cb_50)/3,
              hrp = resting_hr_estimated / resting_hr)
 
 ca_alpha <-
@@ -97,9 +102,17 @@ ca_alpha <-
    .[["total"]] %>% 
    .[["std.alpha"]]
 
+cb_alpha <- 
+   cardio %>% 
+   select(starts_with("cb_")) %>% 
+   psych::alpha() %>% 
+   .[["total"]] %>% 
+   .[["std.alpha"]]
+
 ```
 
 Cronbach alpha for cardioceptive accuracy: `r round(ca_alpha, 2)`
+Cronbach alpha for cardioceptive bias: `r round(cb_alpha, 2)` 
 
 
 ```{r}
@@ -113,7 +126,7 @@ experiment <-
       bodyweight = as.numeric(bodyweight),
       bmi = bodyweight / (bodyheight / 100) ^ 2,
       task_order = if_else(task_order == 1,
-                           "Cognitive first",
+                           "Mental first",
                            "Physical first") %>%
                    as.factor()) %>%
    select(-starts_with("marker_")) %>%
@@ -141,7 +154,8 @@ experiment %>%
           sd = if_else(name %in% c("n", "male"), NA_real_, sd),
           min = if_else(name %in% c("n", "male"), NA_real_, min),
           max = if_else(name %in% c("n", "male"), NA_real_, max),
-          name = c("N", "Male %", "Mean age in years", "Mean STAI-S Baseline", "Mean BMI in kg/m<sup>2</sup>", "Mean Bodyfat %", "Mean resting HR in bpm")) %>% 
+          name = c("N", "Male %", "Mean age in years", "Mean STAI-S Baseline", "Mean BMI in kg/m<sup>2</sup>", "Mean Bodyfat %", "Mean resting HR in bpm")
+          ) %>% 
    gt() %>% 
    fmt_number(2:5, decimals = 1, rows = 2:7) %>% 
    fmt_markdown(columns = 1) %>% 
@@ -171,7 +185,7 @@ We tested if the tasks were perceived as stressful.
 
 ## STAI-S
 
-Controlling for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the cognitive task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
+Controlling for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the mental task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
 
 ```{r}
 # Calculate STAI-S reactivity
@@ -233,8 +247,16 @@ stai %>%
    lmer(value ~ task * time + stai_s_t0_sum + task_order + (1|id), 
         data = .) %>% 
    tab_model(dv.labels = "STAI-S", 
+             # show.reflvl = TRUE,
              show.aicc = TRUE,
-             show.loglik = TRUE)
+             show.loglik = TRUE#,
+             # pred.labels = c("Task:Physical", 
+             #                 "Time:Post", 
+             #                 "STAI-S Baseline", 
+             #                 "Task order",
+             #                 "Task:Physical * Time:Post"
+             #                 )
+             )
 ```
 </div>
 
@@ -255,7 +277,7 @@ stai_sum %>%
    scale_y_continuous(limits = c(0, NA)) +
    labs(color = "Task",
         title = "Change in STAI-S by task and time",
-        subtitle = "STAI-S increased only in the cognitive stress task.",
+        subtitle = "STAI-S increased only in the mental stress task.",
         y = "Mean STAI-S (SE)",
         x = "Measurement")
 
@@ -264,7 +286,7 @@ stai_sum %>%
 
 ## Subjective stress (VAS)
 
-Most of the participants regarded the cognitive stress more stressful than the physical stress.
+Most of the participants regarded the mental stress more stressful than the physical stress.
 
 ```{r}
 experiment %>% 
@@ -344,7 +366,7 @@ phys_trans <-
    # Join participant data
    left_join(select(experiment, 
                     id, sex, age, bodyfat_percent, bmi, task_order,
-                    ca, hrp), 
+                    ca, cb, hrp), 
              by = "id")
 
 phys_trans %>% 
@@ -374,16 +396,20 @@ reactivity <-
                values_from = c("meanhr", "hf_percent", "rmssd","eda_avg")) %>% 
    transmute(id,
              #HR
-             meanhr_react_cognitive = meanhr_cognitive - meanhr_baseline,
+             meanhr_react_cognitive1 = meanhr_cognitive1 - meanhr_baseline,
+             meanhr_react_cognitive2 = meanhr_cognitive2 - meanhr_baseline,
              meanhr_react_physical = meanhr_physical - meanhr_baseline,
              # HF
-             hf.percent_react_cognitive = hf_percent_cognitive - hf_percent_baseline,
+             hf.percent_react_cognitive1 = hf_percent_cognitive1 - hf_percent_baseline,
+             hf.percent_react_cognitive2 = hf_percent_cognitive2 - hf_percent_baseline,
              hf.percent_react_physical = hf_percent_physical - hf_percent_baseline,
              # RMSSD
-             rmssd_react_cognitive = rmssd_cognitive - rmssd_baseline,
+             rmssd_react_cognitive1 = rmssd_cognitive1 - rmssd_baseline,
+             rmssd_react_cognitive2 = rmssd_cognitive2 - rmssd_baseline,
              rmssd_react_physical = rmssd_physical - rmssd_baseline,
              #EDA
-             eda.avg_react_cognitive = eda_avg_cognitive - eda_avg_baseline,
+             eda.avg_react_cognitive1 = eda_avg_cognitive1 - eda_avg_baseline,
+             eda.avg_react_cognitive2 = eda_avg_cognitive2 - eda_avg_baseline,
              eda.avg_react_physical = eda_avg_physical - eda_avg_baseline) %>% 
    left_join(stai_reactivity, by = "id")
    
@@ -400,11 +426,12 @@ reactivity %>%
 ## Missing data analysis
 
 ```{r}
+
 phys_data %>% 
    select(eda_avg:hf_abs) %>% 
    group_by() %>% 
    miss_var_summary() %>% 
-   print_html()
+   print(n = 100)
 
 ```
 
@@ -418,7 +445,7 @@ Heart rate and HRV variables were investigated using linear mixed-effect models,
 ### Results 
 HR was increased in the physical task compared to baseline.
 log(RMSSD) did not change significantly in any task.
-log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive (increase), and physical task (decrease).
+log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive1 (increase), and physical task (decrease).
 Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
 ```{r}
@@ -615,44 +642,43 @@ reactivity %>%
 ## H1
 There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
 
-```{r eval=FALSE, include=FALSE}
-### Verbatim solution
-# 
-# We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
 
+### Verbatim solution
+
+We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
+```{r}
 react_vars <-
    c(
-      "meanhr_cognitive",
-      "meanhr_cognitive",
+      "meanhr_cognitive1",
+      "meanhr_cognitive2",
       "meanhr_physical",
-      "hf.percent_cognitive",
-      "hf.percent_cognitive",
+      "hf.percent_cognitive1",
+      "hf.percent_cognitive2",
       "hf.percent_physical",
-      "rmssd_cognitive",
-      "rmssd_cognitive",
+      "rmssd_cognitive1",
+      "rmssd_cognitive2",
       "rmssd_physical",
-      "eda.avg_cognitive",
-      "eda.avg_cognitive",
+      "eda.avg_cognitive1",
+      "eda.avg_cognitive2",
       "eda.avg_physical",
       "stai_cognitive",
       "stai_physical"
    )
 
 experiment %>% 
-   select(id, ca, hrp) %>% 
+   select(id, ca, cb, hrp) %>% 
    left_join(reactivity, by = "id") %>% 
    rename_with(~str_remove(., "react_")) %>% 
    correlation(p_adjust = "fdr", 
-               select2 = c("ca", "hrp"),
+               select2 = c("ca", "cb", "hrp"),
                select = all_of(react_vars)) %>% 
    arrange(Parameter2) %>% 
    print_html()
 ```
 
-We built linear mixed-effect models with random intercept by person to investigate if cardioceptive accuracy/heart rate perception moderates the response to stress in any of the tasks.
+### Same thing, but more contemporary approach
 
-We did not find a relationship between cardioceptive accuracy and physiological reactivity measures (HR, RMSSD, HF%, EDA) in any of the tasks. However, CA was negatively associated with HR and positively with lgRMSSD.
-Similarly, heart rate perception was negatively associated with HR and positively with lgRMSSD, but did not moderate the reaction to stress.
+We built linear mixed-effect models with random intercept by person to investigate if cardioceptive accuracy/bias/heart rate perception moderates the response to stress in any of the tasks.
 
 ```{r}
 # Create moderation models
@@ -660,12 +686,15 @@ cardioceptive_models <-
    phys_trans %>% 
    select(id, 
           marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg, 
-          ca, hrp) %>% 
+          ca, cb, hrp) %>% 
    pivot_longer(meanhr:lg_eda_avg) %>% 
    group_by(name) %>% 
    nest() %>% 
    mutate(ca_model = map(data, 
                          ~lmer(scale(value) ~ marker * scale(ca) +
+                              (1|id), data = .x)),
+          cb_model = map(data, 
+                         ~lmer(scale(value) ~ marker * scale(cb) +
                               (1|id), data = .x)),
           hrp_model = map(data, 
                          ~lmer(scale(value) ~ marker * scale(hrp) +
@@ -674,6 +703,12 @@ cardioceptive_models <-
 cardioceptive_models$ca_model %>% 
    tab_model(dv.labels = cardioceptive_models$name,
              title = "Models for cardioceptive accuracy",
+             col.order = col_order,
+             show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
+
+cardioceptive_models$cb_model %>% 
+   tab_model(dv.labels = cardioceptive_models$name,
+             title = "Models for cardioceptive bias",
              col.order = col_order,
              show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
 
@@ -688,15 +723,10 @@ cardioceptive_models$hrp_model %>%
 
 ```{r}
 phys_trans %>% 
-   select(meanhr, lg_rmssd, marker, ca, hrp) %>% 
-   pivot_longer(ca:hrp, 
-                names_to = "cardio_metric", 
-                values_to = "cardio_value") %>% 
-   pivot_longer(meanhr:lg_rmssd, 
-                names_to = "metric",
-                values_to = "value") %>% 
+   select(meanhr, marker, ca, cb, hrp) %>% 
+   pivot_longer(ca:hrp) %>% 
    ggplot() +
-   aes(x = cardio_value, y = value, color = marker) +
+   aes(x = value, y = meanhr, color = marker) +
    geom_point(alpha = .6) +
    facet_wrap(~marker) +
    geom_smooth(method = "lm", alpha = .6, size = 1.2, 
@@ -704,16 +734,19 @@ phys_trans %>%
    scale_color_viridis_d() +
       labs(title = "Association between cardioceptive metrics and mean HR",
         subtitle = "The correlation is similar in all tasks",
+        caption = "Notes: ca: cadioceptive accuracy, cb: cardioceptive bias, hrp: heart rate perception",
         color = "Task",
-        y = "Mean HR (bpm) / lgRMSSD (lgms)",
-        x = "Cardioceptive accuracy / Heart rate perception") +
-   facet_grid(metric~cardio_metric, scales = "free")
+        y = "Mean HR (bpm)",
+        x = NULL) +
+   facet_wrap(~name, scales = "free_x")
 ```
 
 ## H2
 Cardioceptive accuracy [cardioceptive_accuracy] moderates the association between objective [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical] and subjective reactions to stress [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before]; higher cardioceptive accuracy is related to a stronger association
 
-We fitted linear regressions on the reactivity score for each metric (HR mean, HF%, RMSSD, and EDA mean) for each task (cognitive and physical). We investigated if the STAI-S change in the respective task had a significant association with the change metric, and if the cardioceptive accuracy or heart rate perception moderated the association. We included sex, body fat percent, and task order as covariates.
+We fitted linear regressions on the reactivity score for each metric (HR mean, HF%, RMSSD, and EDA mean) for each task (cognitive1, cognitive2, and physical). We investigated if the STAI-S change in the respective task had a significant association with the change metric, and if the cardioceptive accuracy or heart rate perception moderated the association. We included sex, body fat percent, and task order as covariates.
+
+We found a significant positive association between the reactivity of RMSSD in the cognitive task and the change in STAI. The higher the perceived stress was, the more the RMSSD increased in the cognitive task.
 
 We found a significant negative association between the reactivity of EDA mean in the cognitive task and the change in STAI. The higher the perceived stress was, the more the EDA mean decreased in the cognitive task.
 
@@ -784,7 +817,20 @@ hypo2 %>%
 
 ```{r}
 hypo2 %>% 
-   filter(metric_task %in% c("eda.avg_cognitive") &
+   filter(metric_task %in% c("rmssd_cognitive1") &
+          str_detect(name, "ca")) %>% 
+   select(-value) %>% 
+   unnest(data) %>% 
+   ggplot() +
+   aes(x = stai_react_cognitive, y = value) +
+   geom_point() +
+   geom_smooth(method = "lm") +
+   labs(title = "The association beween STAI change and RMSSD reactivity in the cognitive task",
+        x = "STAI-S change",
+        y = "RMSSD reactivity")
+
+hypo2 %>% 
+   filter(metric_task %in% c("eda.avg_cognitive1") &
           str_detect(name, "ca")) %>% 
    select(-value) %>% 
    unnest(data) %>% 
@@ -800,7 +846,7 @@ hypo2 %>%
 ## H3
 Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
 
-We fitted linear regressions for each task (cognitive and physical) separately. We investigated if physiological changes, cardioceptive accuracy, or expected HR change predicted STAI-S change in the respective tasks. We used task order as a covariate. 
+We fitted linear regressions for each task (cognitive1, cognitive2, and physical) separately. We investigated if physiological changes, cardioceptive accuracy, or expected HR change predicted STAI-S change in the respective tasks. We used task order as a covariate. 
 
 We found no associations between cardioceptive accuracy and STAI-S change.
 Expected HR change did predict STAI-S change in all cognitive tasks.
@@ -815,7 +861,7 @@ hypo3 <-
                     physical_expected_hr_change,
                     mental_expected_hr_change),
                     by = "id") %>%
-   pivot_longer(meanhr_react_cognitive:eda.avg_react_physical,
+   pivot_longer(meanhr_react_cognitive1:eda.avg_react_physical,
                 names_pattern = "(.*)_react_(.*)",
                 names_to = c("metric", "task")) %>% 
    group_by(metric, task) %>% 
@@ -869,7 +915,7 @@ hypo3 %>%
 ## H4 
 Perceived HR in both conditions [mental_experienced_HR_change; physical_experienced_HR_change] is predicted by actual change [ΔHRmental, ΔHRphysical] and HR-related expectations [mental_expected_HR_change; physical_expected_HR_change] in both conditions
 
-We fitted linear regressions for each task (cognitive and physical) separately. We investigated if actual (ECG measured) HR change in the respective tasks predicted subjective HR change, and if expectations predicted subjective HR change better. We included sex, body fat percent, and task order as covariates.
+We fitted linear regressions for each task (cognitive1, cognitive2, and physical) separately. We investigated if actual (ECG measured) HR change in the respective tasks predicted subjective HR change, and if expectations predicted subjective HR change better. We included sex, body fat percent, and task order as covariates.
 
 We found that actual HR change did not predict the experienced HR change in any of the tasks. However, expected HR change significantly predicted subjective HR change in all tasks.
 
@@ -887,7 +933,7 @@ hypo4 <-
                     mental_experienced_hr_change, 
                     bodyfat_percent, sex, task_order), by = "id") %>% 
    # Create a redundant dataset to run several regressions at once
-   pivot_longer(c(meanhr_react_cognitive:meanhr_react_physical),
+   pivot_longer(c(meanhr_react_cognitive1:meanhr_react_physical),
                 names_to = c("metric","task"),
                 names_pattern = "(.*)_react_(.*)",
                 values_to = "hr_reactivity") %>% 
@@ -1006,8 +1052,8 @@ There is a positive correlation between cardioceptive accuracy, caridoceptive bi
 phys_trans %>% 
    distinct(id, .keep_all = TRUE) %>%
    correlation(
-               select = c("ca", "hrp"),
-               p_adjust = "none") %>% 
+               select = c("ca", "cb", "hrp"),
+               p_adjust = "fdr") %>% 
    print_html()
 
 ```
