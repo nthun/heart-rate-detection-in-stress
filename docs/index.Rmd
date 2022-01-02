@@ -31,6 +31,7 @@ library(ggbeeswarm)
 library(correlation)
 library(naniar)
 library(patchwork)
+library(skimr)
 
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
                       fig.width = 9, fig.height = 6)
@@ -50,6 +51,19 @@ renamed_markers <-
     "physical" = "Handgrip",
     "cognitive" = "N-back",
     "mental" = "N-back")
+
+cardioceptive_names <-
+  c(ca = "Cardioceptive accuracy",
+    hrp = "Heart rate perception")
+
+phys_metrics <- 
+  tribble(~name, ~metric,
+         "meanhr", "Mean HR",
+         "lg_hf_percent", "HF% (log)",
+         "lg_rmssd", "RMSSD (log)",
+         "lg_eda_avg", "Mean EDA (log)") %>% 
+  mutate(metric = fct_inorder(metric))
+
 ```
 
 
@@ -135,43 +149,40 @@ experiment <-
 # Sample characteristics
 
 ```{r}
-
-experiment %>% 
-   select(id, sex, age, task_order, stai_s_t0_sum, bmi, bodyfat_percent, max_grip_strength, resting_hr) %>% 
-   mutate(male = if_else(sex == "Male", 1, 0),
-          n = n()) %>% 
-   summarise(across(c(n, male, age, stai_s_t0_sum, bmi, bodyfat_percent, resting_hr), 
-                    list("_avg" = mean, "_sd" = sd, "_min" = min, "_max" = max), 
-                    na.rm = TRUE)) %>% 
-   pivot_longer(everything(),
-                names_to = c(".value", "parameter"),
-                names_pattern = "(.*)__(.*)$") %>% 
-   pivot_longer(-parameter) %>% 
-   pivot_wider(names_from = "parameter") %>% 
-   mutate(avg = if_else(name %in% c("male"), avg * 100, avg),
-          sd = if_else(name %in% c("n", "male"), NA_real_, sd),
-          min = if_else(name %in% c("n", "male"), NA_real_, min),
-          max = if_else(name %in% c("n", "male"), NA_real_, max),
-          name = c("N", "Male %", "Mean age in years", "Mean STAI-S Baseline", "Mean BMI in kg/m<sup>2</sup>", "Mean Bodyfat %", "Mean resting HR in bpm")) %>% 
-   gt() %>% 
-   fmt_number(2:5, decimals = 1, rows = 2:7) %>% 
-   fmt_markdown(columns = 1) %>% 
-   fmt_missing(everything(), missing_text = "-") %>% 
-   cols_merge(columns = c("avg", "sd"), pattern = "{1} ({2})") %>% 
-   cols_merge(columns = c("min", "max"), pattern = "{1}-{2}") %>% 
-   cols_label("name" = "", "avg" = "Value (SD)", "min" = "Range") %>%
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey")
-
-
-experiment %>% 
-   select(age, stai_s_t0_sum, bmi, bodyfat_percent, max_grip_strength, resting_hr) %>%
-   pivot_longer(everything()) %>% 
-   ggplot() +
-   aes(x = value, fill = name) +
-   geom_histogram(show.legend = FALSE) +
-   facet_wrap(~name, scales = "free") +
-   labs(title = "Histograms of participant characteristics")
+experiment %>%
+  select(male = sex,
+         age,
+         stai_s_t0_sum,
+         bmi,
+         bodyfat_percent,
+         max_grip_strength,
+         resting_hr) %>%
+  mutate(male = if_else(male == "Male", 100, 0),
+         n = n(),
+         .before = 1) %>%
+  skim() %>%
+  select( name = skim_variable,
+          mean = numeric.mean,
+          sd = numeric.sd,
+          min = numeric.p0,
+          max = numeric.p100,
+          Distribution = numeric.hist) %>%
+  mutate(name = c("N",
+                  "Male %",
+                  "Mean age (years)",
+                  "Mean STAI-S baseline",
+                  "Mean BMI (kg/m<sup>2</sup>)",
+                  "Mean bodyfat %",
+                  "Mean max grip strength (kg)",
+                  "Mean resting HR (bpm)")) %>%
+  gt() %>%
+  fmt_number(c(mean, sd, min, max), decimals = 1, rows = 2:8) %>%
+  fmt_markdown(columns = 1) %>%
+  cols_merge(columns = c("mean", "sd"), pattern = "{1} ({2})") %>%
+  cols_merge(columns = c("min", "max"), pattern = "{1}-{2}") %>%
+  cols_label("name" = "",
+             "mean" = "Value (SD)",
+             "min" = "Range")
 
 ```
 
@@ -202,13 +213,14 @@ stai <-
                 names_pattern = "stai_s_(.*)_(.*)_sum") %>% 
    mutate(task = recode(task, !!!renamed_markers))
 
-stai_sum <- 
+stai_sum <-
    stai %>% 
    group_by(task, time) %>% 
    summarise(stai_avg = mean(value, na.rm = TRUE),
              stai_sd = sd(value, na.rm = TRUE),
-             stai_se = stai_sd/sqrt(n()),
-             .groups = "drop")
+             stai_se = stai_sd/sqrt(n())) %>% 
+   mutate(stai_prop = stai_avg/first(stai_avg)) %>% 
+   ungroup()
 
 ```
 
@@ -217,19 +229,21 @@ stai_sum <-
 stai_sum %>% 
    select(-stai_se) %>% 
    pivot_wider(names_from = c(time), names_sep = "_",
-               values_from = c(stai_avg, stai_sd)) %>% 
+               values_from = c(stai_avg, stai_sd, stai_prop)) %>% 
+   select(-stai_prop_t0) %>% 
    gt() %>% 
    fmt_number(columns = starts_with("stai_"), 
                  decimals = 1) %>% 
-   cols_merge(columns = c("stai_avg_t0", "stai_sd_t0"), 
-              pattern = "{1} ({2})") %>% 
-   cols_merge(columns = c("stai_avg_t1", "stai_sd_t1"), 
-              pattern = "{1} ({2})") %>% 
+   fmt_percent(stai_prop_t1, decimals = 1) %>% 
+   cols_merge(columns = ends_with("_t0"), 
+              pattern = "{1} ± {2}") %>% 
+   cols_merge(columns = ends_with("_t1"), 
+              pattern = "{1} ± {2} ({3})") %>% 
    cols_label(task = "Task",
               stai_avg_t0 = "Pre-stress", 
               stai_avg_t1 = "Post-stress") %>% 
    tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey") %>% 
+               column_labels.background.color = "lightgrey") %>%
    tab_footnote(footnote = "Values represent the mean (SD) of the STAI-S",
                 locations = cells_column_labels(3))
 
@@ -256,21 +270,23 @@ stai %>%
 ```{r}
 # Visualize
 stai_sum %>% 
+   mutate(time = recode(time, t0 = "Baseline", t1 = "Task")) %>% 
    ggplot() +
-   aes(x = str_to_sentence(time), 
+   aes(x = time, 
        y = stai_avg, 
        group = task, 
        color = task,
        ymin = stai_avg - stai_se, 
        ymax = stai_avg + stai_se) +
-   geom_pointrange() +
+   geom_errorbar(width = .1, alpha = .7, color = "gray50") +
+   geom_point() +
    geom_line(size = 1.2, alpha = .6) +
-   scale_y_continuous(limits = c(0, NA)) +
+   # scale_y_continuous(limits = c(0, NA)) +
    labs(color = "Task",
-        title = "Change in STAI-S by task and time",
-        subtitle = "STAI-S increased only in the cognitive stress task.",
-        y = "Mean STAI-S (SE)",
-        x = "Measurement")
+        # title = "Change in STAI-S by task and time",
+        # subtitle = "STAI-S increased only in the cognitive stress task.",
+        y = "Mean STAI-S (SEM)",
+        x = NULL)
 
 
 ```
@@ -649,27 +665,24 @@ reactivity %>%
 ## H1
 There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
 
-```{r eval=FALSE, include=FALSE}
 ### Verbatim solution
+```{r eval=FALSE, include=FALSE}
+
 # 
 # We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
 
 react_vars <-
    c(
       "meanhr_N-back",
-      "meanhr_N-back",
-      "meanhr_physical",
+      "meanhr_Handgrip",
       "hf.percent_N-back",
-      "hf.percent_N-back",
-      "hf.percent_physical",
+      "hf.percent_Handgrip",
       "rmssd_N-back",
-      "rmssd_N-back",
-      "rmssd_physical",
+      "rmssd_Handgrip",
       "eda.avg_N-back",
-      "eda.avg_N-back",
-      "eda.avg_physical",
+      "eda.avg_Handgrip",
       "stai_N-back",
-      "stai_physical"
+      "stai_Handgrip"
    )
 
 experiment %>% 
@@ -688,6 +701,7 @@ We built linear mixed-effect models with random intercept by person to investiga
 We did not find a relationship between cardioceptive accuracy and physiological reactivity measures (HR, RMSSD, HF%, EDA) in any of the tasks. However, CA was negatively associated with HR and positively with lgRMSSD.
 Similarly, heart rate perception was negatively associated with HR and positively with lgRMSSD, but did not moderate the reaction to stress.
 
+### LMEM solution
 ```{r}
 # Create moderation models
 cardioceptive_models <-
@@ -703,16 +717,18 @@ cardioceptive_models <-
                               (1|id), data = .x)),
           hrp_model = map(data, 
                          ~lmer(scale(value) ~ marker * scale(hrp) +
-                              (1|id), data = .x)))
+                              (1|id), data = .x))) %>% 
+  left_join(phys_metrics, ., by = "name") %>% 
+  select(-name)
 
 cardioceptive_models$ca_model %>% 
-   tab_model(dv.labels = cardioceptive_models$name,
+   tab_model(dv.labels = cardioceptive_models$metric,
              title = "Models for cardioceptive accuracy",
              col.order = col_order,
              show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
 
 cardioceptive_models$hrp_model %>% 
-   tab_model(dv.labels = cardioceptive_models$name,
+   tab_model(dv.labels = cardioceptive_models$metric,
              title = "Models for heart rate perception",
              col.order = col_order,
              show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
@@ -727,20 +743,24 @@ phys_trans %>%
                 names_to = "cardio_metric", 
                 values_to = "cardio_value") %>% 
    pivot_longer(meanhr:lg_rmssd, 
-                names_to = "metric",
+                names_to = "name",
                 values_to = "value") %>% 
+   mutate(cardio_metric = recode(cardio_metric, !!!cardioceptive_names)) %>% 
+   left_join(phys_metrics, by = "name") %>% 
    ggplot() +
    aes(x = cardio_value, y = value, color = marker) +
    geom_point(alpha = .6) +
    facet_wrap(~marker) +
-   geom_smooth(method = "lm", alpha = .6, size = 1.2, 
-               se = FALSE, alpha = .6) +
+   geom_smooth(method = "lm", 
+               size = 1.2, 
+               se = FALSE, 
+               alpha = .6) +
    scale_color_viridis_d() +
       labs(title = "Association between cardioceptive metrics and mean HR",
         subtitle = "The correlation is similar in all tasks",
         color = "Task",
-        y = "Mean HR (bpm) / lgRMSSD (lgms)",
-        x = "Cardioceptive accuracy / Heart rate perception") +
+        y = NULL,
+        x = NULL) +
    facet_grid(metric~cardio_metric, scales = "free")
 ```
 
@@ -1048,16 +1068,10 @@ phys_trans %>%
 
 ## Visualize phys changes
 ```{r}
-phys_metrics <- 
-  tribble(~name, ~metric,
-         "meanhr", "Mean HR (bpm)",
-         "lg_hf_percent", "HF% (log)",
-         "lg_eda_avg", "Mean EDA (log)") %>% 
-  mutate(metric = fct_inorder(metric))
 
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
-          meanhr, lg_hf_percent, lg_eda_avg) %>% 
+          meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
    pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
    left_join(phys_metrics, by = "name") %>% 
    group_by(metric, marker) %>% 
@@ -1105,6 +1119,42 @@ phys_trans %>%
              # file = "tables/phys_change.html",
              show.stat = TRUE
              ) 
+  
+```
+
+## Change  stats in %
+```{r}
+
+phys_trans %>% 
+  select(id, marker, one_of(phys_metrics$name)) %>% 
+  pivot_longer(-c(id, marker)) %>% 
+  group_by(name, marker) %>% 
+  summarise(avg = mean(value, na.rm = TRUE),
+            sd = sd(value, na.rm = TRUE)) %>% 
+  mutate(prop_change = avg / first(avg) %>% round(2)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = marker,
+              values_from = c(avg, sd, prop_change)) %>% 
+  left_join(phys_metrics, by = "name") %>% 
+  relocate(metric) %>% 
+  select(-name) %>% 
+  arrange(metric) %>% 
+  gt() %>% 
+  fmt_percent(starts_with("prop_"), decimals = 1) %>% 
+  fmt_number(matches("^avg.*|^sd.*"), decimals = 2) %>%
+  cols_merge(columns = ends_with("_Baseline"),
+             pattern = "{1} ± {2}") %>% 
+  cols_merge(columns = ends_with("_Handgrip"),
+             pattern = "{1} ± {2} ({3})") %>% 
+  cols_merge(columns = ends_with("_N-Back"),
+             pattern = "{1} ± {2} ({3})") %>% 
+  cols_label(metric = "",
+             avg_Baseline = "Baseline",
+             avg_Handgrip = "Handgrip",
+             `avg_N-back` = "N-back") %>% 
+  cols_align(metric, align = "left")
+
+
   
 ```
 
