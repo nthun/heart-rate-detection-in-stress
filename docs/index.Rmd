@@ -44,7 +44,12 @@ theme_set(theme_light())
 # Set parameters
 outlier_treshold_sd = 3 # Threshold for outliers in SD
 # Column order for model summaries
-col_order <- c("est", "ci", "df.error", "stat", "p")
+col_order <- c("est", 
+               # "ci", 
+               "se",
+               # "df.error", 
+               "stat", 
+               "p")
 
 renamed_markers <-
   c("baseline" = "Baseline",
@@ -63,6 +68,10 @@ phys_metrics <-
          "lg_rmssd", "RMSSD (log)",
          "lg_eda_avg", "Mean EDA (log)") %>% 
   mutate(metric = fct_inorder(metric))
+
+skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
+skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
+heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
 
 ```
 
@@ -113,7 +122,14 @@ cardio <-
              ca_35 = 1 - abs((hr_35obj - hr_35szubj) / hr_35obj),
              ca_50 = 1 - abs((hr_50obj - hr_50szubj) / hr_50obj),
              ca = (ca_25 + ca_35 + ca_50)/3,
-             hrp = resting_hr_estimated / resting_hr)
+             hrp = resting_hr_estimated / resting_hr,
+             hrp_group = cut_number(hrp, 
+                                n = 3, 
+                                labels = c("Low HRP",
+                                           "Medium HRP",
+                                           "High HRP"),
+                                ordered_result = TRUE)
+)
 
 ca_alpha <-
    cardio %>% 
@@ -179,7 +195,7 @@ experiment %>%
   fmt_number(c(mean, sd, min, max), decimals = 1, rows = 2:8) %>%
   fmt_markdown(columns = 1) %>%
   cols_merge(columns = c("mean", "sd"), pattern = "{1} ({2})") %>%
-  cols_merge(columns = c("min", "max"), pattern = "{1}-{2}") %>%
+  cols_merge(columns = c("min", "max"), pattern = "{1} - {2}") %>%
   cols_label("name" = "",
              "mean" = "Value (SD)",
              "min" = "Range")
@@ -286,7 +302,8 @@ stai_sum %>%
         # title = "Change in STAI-S by task and time",
         # subtitle = "STAI-S increased only in the cognitive stress task.",
         y = "Mean STAI-S (SEM)",
-        x = NULL)
+        x = NULL) +
+  theme(panel.grid = element_blank())
 
 
 ```
@@ -474,8 +491,6 @@ log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive 
 Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
 ```{r}
-heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
-
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
           all_of(heart_metrics)) %>% 
@@ -533,10 +548,6 @@ Sex, task order, and bodyfat percent were controlled, and were not significant p
 
 
 ```{r}
-
-skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
-skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
-
 # LMEMs for average values
 skin_avg_mod <-
    phys_trans %>% 
@@ -594,7 +605,8 @@ phys_trans %>%
    facet_wrap(~name, scales = "free_y") +
    labs(title = "Mean values of electrodermal variables by task",
         y = "Mean value (SE)",
-        x = NULL)
+        x = NULL) +
+  theme(panel.grid = element_blank())
 ```
 
 ```{r eval=FALSE, include=FALSE}
@@ -660,8 +672,6 @@ reactivity %>%
 
 # Hypothesis tests
 
-<!-- TODO: Calculate change metrics by task -->
-
 ## H1
 There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
 
@@ -725,13 +735,17 @@ cardioceptive_models$ca_model %>%
    tab_model(dv.labels = cardioceptive_models$metric,
              title = "Models for cardioceptive accuracy",
              col.order = col_order,
-             show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
+             file = "docs/s2a.html",
+             show.se = TRUE,
+             show.stat = TRUE, show.df = TRUE)
 
 cardioceptive_models$hrp_model %>% 
    tab_model(dv.labels = cardioceptive_models$metric,
              title = "Models for heart rate perception",
              col.order = col_order,
-             show.aicc = TRUE, show.stat = TRUE, show.df = TRUE)
+             file = "docs/s2b.html",
+             show.se = TRUE,
+             show.stat = TRUE, show.df = TRUE)
 
 
 ```
@@ -761,7 +775,8 @@ phys_trans %>%
         color = "Task",
         y = NULL,
         x = NULL) +
-   facet_grid(metric~cardio_metric, scales = "free")
+   facet_grid(metric~cardio_metric, scales = "free") +
+  theme(panel.grid = element_blank())
 ```
 
 ## H2
@@ -776,9 +791,9 @@ We found a significant negative association between the reactivity of EDA mean i
 hypo2 <-
    reactivity %>% 
    # Put all reactivity metrics and cardioceptive metrics together
-   left_join(select(experiment, id, ca, hrp, bodyfat_percent, sex, task_order), by = "id") %>%
+   left_join(select(experiment, id, ca, hrp, bodyfat_percent, hrp_group, sex, task_order), by = "id") %>%
    # Create a redundant dataset to run several regressions at once
-   pivot_longer(-c(id, ca, hrp, bodyfat_percent, sex, `stai_react_N-back`, stai_react_Handgrip, task_order),
+   pivot_longer(-c(id, ca, hrp, hrp_group, bodyfat_percent, sex, `stai_react_N-back`, stai_react_Handgrip, task_order),
                 names_to = c("metric","task"),
                 names_pattern = "(.*)_react_(.*)") %>% 
    group_by(metric, task) %>% 
@@ -789,19 +804,19 @@ hypo2 <-
    nest() %>% 
    # Create several models for different cardioceptive metrics and tasks
    mutate(`ca_N-back_mod` = map(data, 
-                            ~lm(value ~ `stai_react_N-back` * ca +
+                            ~lm(`stai_react_N-back` ~ value * ca +
                                         bodyfat_percent + sex + task_order, 
                                 data = .x)),
           `hrp_N-back_mod` = map(data, 
-                            ~lm(value ~ `stai_react_N-back` * hrp +
+                            ~lm(`stai_react_N-back` ~ value * hrp +
                                         bodyfat_percent + sex + task_order, 
                                 data = .x)),
           ca_Handgrip_mod = map(data, 
-                            ~lm(value ~ stai_react_Handgrip * ca +
+                            ~lm(stai_react_Handgrip ~ value * ca +
                                          bodyfat_percent + sex + task_order, 
                                 data = .x)),
           hrp_Handgrip_mod = map(data, 
-                            ~lm(value ~ stai_react_Handgrip * hrp +
+                            ~lm(stai_react_Handgrip ~ value * hrp +
                                         bodyfat_percent + sex + task_order, 
                                 data = .x))
    ) %>% 
@@ -809,7 +824,8 @@ hypo2 <-
    pivot_longer(`ca_N-back_mod`:hrp_Handgrip_mod) %>% 
    filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
           (str_detect(task, "Handgrip") & str_detect(name, "Handgrip"))) %>% 
-   unite("metric_task", metric, task)
+   unite("metric_task", metric, task) %>% 
+   arrange(name)
 
 # Print all models
 hypo2 %>% 
@@ -821,11 +837,17 @@ hypo2 %>%
    map(~fill(.x, cr, .direction = "up")) %>% 
    bind_rows(.id = "model") %>% 
    separate(model, into = c("metric", "task"), sep = "_") %>% 
+   mutate(term = str_replace(term, "value", metric)) %>% 
    group_by(metric, task, cr) %>% 
-   select(metric, task, cr, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   select(metric, task, cr, term, estimate, std.error, 
+          #conf.low, conf.high, 
+          statistic, p.value) %>% 
    gt() %>% 
-   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
-   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+   fmt_number(c("estimate", "std.error", "statistic"
+                #"conf.low", "conf.high"
+                ), 
+                decimals = 2) %>%
+   fmt_number("p.value", decimals = 3) %>%
    tab_options(column_labels.font.weight = "bold",
                column_labels.background.color = "lightgrey",
                row_group.background.color = "lightgrey", 
@@ -835,6 +857,65 @@ hypo2 %>%
    )
 
 ```
+
+```{r}
+# In tab_models
+# CA
+hypo2 %>% 
+  slice(1:8) %>% 
+  pull(value) %>% 
+  set_names(hypo2$metric_task[1:8]) %>% 
+  tab_model(dv.labels = hypo2$metric_task[1:8],
+            title = "Models for cardioceptive accuracy",
+            col.order = col_order,
+            file = "docs/h2ca.html",
+            show.se = TRUE,
+            show.stat = TRUE, 
+            show.df = TRUE
+            )
+
+# HRP
+hypo2 %>% 
+  slice(9:16) %>% 
+  pull(value) %>% 
+  set_names(hypo2$metric_task[9:16]) %>% 
+  tab_model(dv.labels = hypo2$metric_task[9:16],
+            title = "Models for heart rate perception",
+            col.order = col_order,
+            file = "docs/h2hrp.html",
+            show.se = TRUE,
+            show.stat = TRUE, 
+            show.df = TRUE)
+
+```
+
+### Figure: CA/HRP moderates the association of objective and subjective change metrics
+
+```{r}
+reactivity %>% 
+  select(id, `meanhr_react_N-back`, meanhr_react_Handgrip,
+        `stai_react_N-back`, stai_react_Handgrip) %>%
+  left_join(select(experiment, id, ca, hrp, hrp_group), by = "id") %>%
+  pivot_longer(`meanhr_react_N-back`:stai_react_Handgrip,
+                names_to = c("name", "task"),
+                names_pattern = "(.*_react)_(.*)") %>% 
+  pivot_wider(names_from = "name", values_from = "value") %>% 
+  ggplot() +
+  aes(y = stai_react, x = meanhr_react, color = hrp_group) +
+  geom_hline(yintercept = 0, lty = "dashed", alpha = .2) +
+  geom_vline(xintercept = 0, lty = "dashed", alpha = .2) +
+  geom_point(alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, alpha = .7) +
+  scale_color_brewer(palette = "Blues") +
+  facet_wrap(~task, scales = "free_x") +
+  labs(color = "HRP group",
+       x = "HR change",
+       y = "STAI change") +
+  theme(legend.position = "bottom", panel.grid = element_blank())
+  
+```
+
+
 
 ```{r}
 hypo2 %>% 
@@ -917,6 +998,15 @@ hypo3 %>%
                row.striping.include_table_body = TRUE,
                row.striping.background_color = "#EEEEEE"
    )   
+
+hypo3 %>% 
+   pull(value) %>% 
+   set_names(hypo3$name) %>% 
+   map_dfr(glance, conf.int = TRUE, .id = "model") %>% 
+   arrange(model) %>% 
+   gt() %>% 
+   fmt_number(c(r.squared:statistic, logLik:deviance), decimals = 2) %>% 
+   fmt_number(p.value, decimals = 3)
 
 ```
 
@@ -1088,7 +1178,8 @@ phys_trans %>%
              show.legend = FALSE) +
    facet_wrap(~metric, scales = "free_y") +
    labs(y = "Mean value (SEM)",
-        x = NULL)
+        x = NULL) +
+   theme(panel.grid = element_blank())
 ```
 
 ## Phys changes stats

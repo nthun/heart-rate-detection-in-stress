@@ -55,6 +55,10 @@ col_order <- c("est", "ci", "df.error", "stat", "p")
 
 The following analysis report contains the descriptive and inferential statistics for the experiment that investigated how physiological and subjective arousal might be mediated by cardioceptive accuracy.
 
+To access the latest version, with cognitive tasks merged:
+https://nthun.github.io/heart-rate-detection-in-stress/index.html 
+
+
 ```{r data_read, include = FALSE}
 
 experiment_data_raw <- 
