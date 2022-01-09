@@ -73,6 +73,7 @@ skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
 skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
 heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
 
+
 react_vars <-
    c(
       "meanhr_N-back",
@@ -750,7 +751,6 @@ cardioceptive_models$hrp_model %>%
              show.se = TRUE,
              show.stat = TRUE, show.df = TRUE,
              p.adjust = "fdr")
-
 
 ```
 
