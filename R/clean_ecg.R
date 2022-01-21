@@ -16,10 +16,10 @@ theme_set(theme_light())
 
 # File properties
 raw_dir = "data/00_raw"
-downsampled_dir = "data/01_downsampled_ecg/new"
+downsampled_dir = "data/01_downsampled_ecg"
 trimmed_dir = "data/02_trimmed_ecg"
 driftless_dir = "data/03_driftless_ecg"
-dissected_dir = "data/06_ibi_marker"
+dissected_dir = "data/061_ibi_marker_merged"
 
 header_length = 14L
 footer_length = 3L
@@ -29,8 +29,11 @@ start_rate = 1024L
 end_rate = 128L
 
 # Read markers
+# markers <- 
+#   read_csv("data/00_meta/markers.csv")
 markers <- 
-  read_csv("data/00_meta/markers.csv")
+  read_csv("data/00_meta/relative_markers_merged.csv")
+
 
 # 1. Downsample raw data from 1024 Hz to 128 Hz -------------------------------------
 # No need to repeat this, just use the files from the downsampled library
@@ -68,8 +71,6 @@ raw_df <-
                                  col_types = "in__n_"))) %>% 
   unnest(data)
 
-
-# ------------------------------
 
 downsampled_df <-
   raw_df %>%
@@ -205,10 +206,10 @@ driftless_df %>%
 # 6. Cut the files into 4 using the markers ------------------------------------
 
 rel_markers <- 
-  read_csv("data/00_meta/relative_markers.csv")
+  read_csv("data/00_meta/relative_markers_merged.csv")
 
 ibi_raw <-
-  vroom(dir_ls(path = "data/05_ibi_artifacts/new",
+  vroom(dir_ls(path = "data/05_ibi_artifacts",
                regex = "IBI_artifacts_IBIs_from_.*"),
         delim = ",",
         id = "file",
@@ -216,7 +217,7 @@ ibi_raw <-
         col_names = c("ibi", "artifact"))
 
 ibi_corrected <-
-  vroom(dir_ls(path = "data/05_ibi_artifacts/new",
+  vroom(dir_ls(path = "data/05_ibi_artifacts",
                regex = "IBI_artifactCorrected_IBIs_from_.*"),
         delim = ",",
         id = "file",

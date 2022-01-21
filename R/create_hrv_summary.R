@@ -9,7 +9,7 @@ theme_set(theme_light())
 
 # Read raw data
 by_marker_raw <- 
-    vroom(dir_ls("data/07_hrv_marker/"),
+    vroom(dir_ls("data/071_hrv_marker_merged/"),
       id = "file",
       col_names = c("variable", "value")) %>% 
     select(-X3) 
@@ -23,7 +23,7 @@ hrv_summary <-
   extract(
     file,
     into = c("id", "marker"),
-    regex = "data/07_hrv_marker/(.*)-(.*)_hrvResults.txt",
+    regex = "data/071_hrv_marker_merged/(.*)-(.*)_hrvResults.txt",
     convert = TRUE) %>%
   # Clean the hrv variable names
   mutate(variable = janitor::make_clean_names(string = variable) %>%
@@ -35,9 +35,9 @@ hrv_summary <-
 
 # Save final hrv file ---------------------------------------------------------------
 
-write_excel_csv(hrv_summary, "data/08_summarised/hrd_hrv_long.csv")
+write_excel_csv(hrv_summary, "data/08_summarised/hrv_merged_long.csv")
 
-hrv <- read_csv("data/08_summarised/hrd_hrv_long.csv")
+hrv <- read_csv("data/08_summarised/hrv_merged_long.csv")
 
 hrv_summary %>% 
   ggplot() +
@@ -47,7 +47,7 @@ hrv_summary %>%
   scale_x_log10()
 
 hrv_summary %>% 
-  select(id, session, rmssd, hf_abs, hf_percent) %>% 
+  select(id, marker, rmssd, hf_abs, hf_percent) %>% 
   pivot_longer(cols = c(rmssd, hf_abs, hf_percent),
                names_to = "hrv",
                values_to = "value") %>% 
@@ -72,11 +72,5 @@ hrv_summary %>%
   aes(x = marker, y = hf_percent) +
   geom_boxplot()
 
-library(lmerTest)
-library(sjPlot)
 
-hrv
-
-mod <- lmer(log(hf_n_u) ~ marker + (1|id), data = hrv)
-tab_model(mod)
   

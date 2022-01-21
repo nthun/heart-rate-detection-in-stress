@@ -29,8 +29,12 @@ footer_length = 3L
 pattern = ".txt"
 
 # Read markers
+# markers <-
+#   read_csv("data/00_meta/markers.csv")
+
 markers <-
-  read_csv("data/00_meta/markers.csv")
+  read_csv("data/00_meta/markers_merged.csv")
+
   
 # Read raw data
 raw_df <-
@@ -92,42 +96,32 @@ eda_sum <-
                      as_hms()) %>% 
   ungroup()
 
-write_csv(eda_sum, "data/08_summarised/eda_long.csv")
-
-# Merge all physiological data
-hrv_sum <- read_csv("data/08_summarised/hrd_hrv_long.csv")
-phys_data <- left_join(eda_sum, hrv_sum, by = c("id", "marker"))
-write_csv(phys_data, "data/08_summarised/phys_long.csv")
-
-# Verify if all participants have all markers (yes)
-eda_sum %>% 
-  count(id) %>% count(n)
-
+# write_csv(eda_sum, "data/08_summarised/eda_long.csv")
+write_csv(eda_sum, "data/08_summarised/eda_long_merged.csv")
 
 # Sandbox ----------------------------------------------------------------------
-library(lmerTest)
 
-lmer(log(eda_avg+1) ~ marker + (1|id), data = eda_sum) %>% 
-  summary()
-
-lmer(scl_avg ~ marker + (1|id), data = eda_sum) %>% 
-  summary()
-
-lmer(log(eda_increase+1) ~ marker + (1|id), data = eda_sum) %>% 
-  summary()
-
-lmer(log(eda_slope+1) ~ marker + (1|id), data = eda_sum) %>% 
-  summary()
-
-eda_sum %>% 
-  mutate(eda_inc_std = scale(eda_increase) %>% as.numeric()) %>% 
-  filter(eda_inc_std > 3 | eda_inc_std < -3)
-
-eda_sum %>% 
-  pivot_longer(eda_avg:scl_avg) %>% 
+set.seed(123)
+trimmed_df %>% 
+  group_by(id) %>% 
+  nest() %>% 
+  ungroup() %>% 
+  sample_n(4) %>% 
+  unnest(data) %>% 
   ggplot() +
-  aes(x = log(value+1)) +
-  geom_histogram() +
-  facet_wrap(~name, scales = "free")
+  aes(x = time, y = eda) +
+  geom_point(size = .01) +
+  facet_wrap(~id, scales = "free_x")
 
-
+set.seed(234)
+trimmed_df %>% 
+  group_by(id) %>% 
+  nest() %>% 
+  ungroup() %>% 
+  sample_n(4) %>% 
+  unnest(data) %>% 
+  pivot_longer(eda:scl) %>% 
+  ggplot() +
+  aes(x = time, y = value, color = name) +
+  geom_point(size = .1) +
+  facet_wrap(~id, scales = "free_x")
