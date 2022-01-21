@@ -16,10 +16,10 @@ editor_options:
 install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats"))
 ```
 
+# Project setup 
 
 ```{r setup, message = FALSE, warning = FALSE, include = FALSE}
 library(tidyverse)
-library(skimr)
 library(lmerTest)
 library(performance)
 library(sjPlot)
@@ -66,7 +66,10 @@ phys_metrics <-
          "meanhr", "Mean HR",
          "lg_hf_percent", "HF% (log)",
          "lg_rmssd", "RMSSD (log)",
-         "lg_eda_avg", "Mean EDA (log)") %>% 
+         "lg_eda_avg", "Mean EDA (log)",
+         "hf.percent", "HF%",
+         "rmssd", "RMSSD",
+         "eda.avg", "Mean EDA") %>% 
   mutate(metric = fct_inorder(metric))
 
 skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
@@ -494,6 +497,27 @@ phys_data %>%
 
 
 # Analysis of the effects of the tasks on physiological variables
+
+# Descriptive statistics
+```{r}
+
+phys_trans %>% 
+  select(id, marker, ca, hrp, 
+         meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+  summarise(across(ca:lg_eda_avg, 
+                   list(mean = mean, sd = sd), 
+                   na.rm = TRUE)) %>% 
+  pivot_longer(everything(), 
+               names_to = c("name", "stat"), 
+               names_pattern = "^(.*)_(.*)$") %>% 
+  pivot_wider(names_from = "stat") %>% 
+  left_join(phys_metrics, by = "name") %>% 
+  relocate(metric) %>% 
+  gt() %>% 
+  fmt_number(mean:sd, decimals = 2)
+```
+
+
 ## Heart rate related variables
 
 ### Variables
@@ -506,10 +530,11 @@ log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive 
 Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
 ```{r}
+
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(heart_metrics)) %>% 
-   pivot_longer(all_of(heart_metrics)) %>% 
+          all_of(phys_metrics$name[1:4])) %>% 
+   pivot_longer(all_of(phys_metrics$name[1:4])) %>% 
    group_by(name) %>% 
    nest() %>% 
    mutate(model = map(data, 
@@ -517,35 +542,81 @@ phys_trans %>%
                             task_order + sex + scale(bodyfat_percent) + (1|id), 
                             data = .x))) %>% 
    pull(model) %>% 
-   set_names(heart_metrics) %>% 
-   tab_model(dv.labels = heart_metrics,
-             show.loglik = TRUE,
-             show.aicc = TRUE)
-
-
-
+   set_names(phys_metrics$name[1:4]) %>% 
+   tab_model(dv.labels = phys_metrics$metric[1:4], 
+             pred.labels = c("(Intercept)",
+                             "Task [N-back]",
+                             "Task [Handgrip]",
+                             "Task order [Physical first]",
+                             "Sex [Male]",
+                             "Bodyfat %"),
+             string.stat = "t",
+             string.ci = "95% CI", 
+             # file = "tables/phys_change.html",
+             show.stat = TRUE
+             ) 
+  
 ```
 
+## Visualize phys changes
 ```{r}
+
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(heart_metrics)) %>% 
-   pivot_longer(all_of(heart_metrics), values_drop_na = TRUE) %>%
-   group_by(name, marker) %>% 
+          meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+   pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
+   left_join(phys_metrics, by = "name") %>% 
+   group_by(metric, marker) %>% 
    summarise(avg_value = mean(value),
              se_value = sd(value)/sqrt(n()), 
              .groups = "drop") %>% 
    ggplot() +
-   aes(x = marker, y = avg_value, group = name,
+   aes(x = marker, y = avg_value, group = metric,
        ymin = avg_value - se_value, ymax = avg_value + se_value) +
-   geom_pointrange() +
-   geom_line(aes(color = name), size = 1.2, alpha = .6, show.legend = FALSE) +
-   facet_wrap(~name, scales = "free_y") +
-   labs(title = "Mean values of heart rate based variables by task",
-        y = "Mean value (SE)",
-        x = NULL)
+   geom_errorbar(width = .2, alpha = .5) +
+   geom_point(aes(color = metric), show.legend = FALSE) +
+   geom_line(aes(color = metric), 
+             size = 1.2, alpha = .6, 
+             show.legend = FALSE) +
+   facet_wrap(~metric, scales = "free_y") +
+   labs(y = "Mean value (SEM)",
+        x = NULL) +
+   theme(panel.grid = element_blank())
 ```
 
+## Change  stats in %
+```{r}
+
+phys_trans %>% 
+  select(id, marker, one_of(phys_metrics$name[1:4])) %>% 
+  pivot_longer(-c(id, marker)) %>% 
+  group_by(name, marker) %>% 
+  summarise(avg = mean(value, na.rm = TRUE),
+            sd = sd(value, na.rm = TRUE)) %>% 
+  mutate(prop_change = avg / first(avg) %>% round(2)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = marker,
+              values_from = c(avg, sd, prop_change)) %>% 
+  left_join(phys_metrics, by = "name") %>% 
+  relocate(metric) %>% 
+  select(-name) %>% 
+  arrange(metric) %>% 
+  gt() %>% 
+  fmt_percent(starts_with("prop_"), decimals = 1) %>% 
+  fmt_number(matches("^avg.*|^sd.*"), decimals = 2) %>%
+  cols_merge(columns = ends_with("_Baseline"),
+             pattern = "{1} ± {2}") %>% 
+  cols_merge(columns = ends_with("_Handgrip"),
+             pattern = "{1} ± {2} ({3})") %>% 
+  cols_merge(columns = ends_with("_N-Back"),
+             pattern = "{1} ± {2} ({3})") %>% 
+  cols_label(metric = "",
+             avg_Baseline = "Baseline",
+             avg_Handgrip = "Handgrip",
+             `avg_N-back` = "N-back") %>% 
+  cols_align(metric, align = "left")
+  
+```
 
 ## Electrodermal response
 ### Variables
@@ -692,12 +763,10 @@ reactivity %>%
 ## H1
 There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
 
-### Verbatim solution
+We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
+
 ```{r eval=FALSE, include=FALSE}
-
-# 
-# We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
-
+# Detailed table
 experiment %>% 
    select(id, ca, hrp) %>% 
    left_join(reactivity, by = "id") %>% 
@@ -705,68 +774,93 @@ experiment %>%
    correlation(p_adjust = "fdr", 
                select2 = c("ca", "hrp"),
                select = all_of(react_vars)) %>% 
-   arrange(Parameter2) %>% 
+   filter(!str_detect(Parameter1, "stai_")) %>% 
+   separate(Parameter1, into = c("metric", "task"), sep = "_") %>% 
+   arrange(Parameter2, task) %>% 
    print_html()
 ```
 
-We built linear mixed-effect models with random intercept by person to investigate if cardioceptive accuracy/heart rate perception moderates the response to stress in any of the tasks.
+
+```{r}
+# More concise table
+experiment %>% 
+   select(id, ca, hrp) %>% 
+   left_join(reactivity, by = "id") %>% 
+   rename_with(~str_remove(., "react_")) %>% 
+   correlation(p_adjust = "fdr", 
+               select2 = c("ca", "hrp"),
+               select = all_of(react_vars)) %>% 
+   summary() %>% 
+   separate(Parameter, into = c("name", "task"), sep = "_") %>% 
+   left_join(phys_metrics, by = "name") %>% 
+   filter(!str_detect(name, "stai")) %>% 
+   relocate(task, metric) %>% 
+   select(-name) %>% 
+   arrange(task) %>% 
+   print_html() %>% 
+   cols_hide(1)
+```
+
+### Correlation between pooled physiological measurements and carioceptive metrics
+
+```{r eval=FALSE, include=FALSE}
+# Use the phys data instead of the reactivity
+experiment %>% 
+   select(id, ca, hrp) %>% 
+   left_join(select(phys_trans, id, marker, one_of(phys_metrics$name[1:4])), 
+             by = "id") %>% 
+   filter(marker == "Baseline") %>% 
+   correlation(p_adjust = "fdr", 
+               select2 = c("ca", "hrp"),
+               select = c("meanhr","lg_hf_percent","lg_rmssd","lg_eda_avg")) %>% 
+   left_join(phys_metrics, by = c("Parameter1" = "name")) %>% 
+   relocate(metric, .after = Parameter2) %>% 
+   select(-Parameter1) %>%
+   arrange(Parameter2) %>%
+   print_html()
+  
+# Simplified table
+experiment %>% 
+   select(id, ca, hrp) %>% 
+   left_join(select(phys_trans, id, marker, one_of(phys_metrics$name[1:4])), 
+             by = "id") %>% 
+   mutate(marker = factor(marker),
+          id = factor(id)) %>% 
+   correlation(p_adjust = "fdr", 
+               select = c(#"id",
+                          "ca", "hrp",
+                          "meanhr","lg_hf_percent","lg_rmssd","lg_eda_avg"),
+               # include_factors = TRUE,
+               # multilevel = TRUE
+               ) %>% 
+   summary() %>% 
+   left_join(phys_metrics, by = c("Parameter" = "name")) %>% 
+   print_html() %>% 
+   cols_move_to_start(metric) %>% 
+   cols_hide("Parameter") %>% 
+   cols_label(metric = "Measurement",
+              meanhr = "Mean HR",
+              lg_hf_percent = "HF% (log)",
+              lg_rmssd = "RMSSD (log)",
+              lg_eda_avg = "Mean EDA (log)",
+              hrp = "HRP")
+
+```
+
 
 We did not find a relationship between cardioceptive accuracy and physiological reactivity measures (HR, RMSSD, HF%, EDA) in any of the tasks. However, CA was negatively associated with HR and positively with lgRMSSD.
 Similarly, heart rate perception was negatively associated with HR and positively with lgRMSSD, but did not moderate the reaction to stress.
 
-### LMEM solution
-```{r}
-# Create moderation models
-cardioceptive_models <-
-   phys_trans %>% 
-   select(id, 
-          marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg, 
-          ca, hrp) %>% 
-   pivot_longer(meanhr:lg_eda_avg) %>% 
-   group_by(name) %>% 
-   nest() %>% 
-   mutate(ca_model = map(data, 
-                         ~lmer(scale(value) ~ marker * scale(ca) +
-                              (1|id), data = .x)),
-          hrp_model = map(data, 
-                         ~lmer(scale(value) ~ marker * scale(hrp) +
-                              (1|id), data = .x))) %>% 
-  left_join(phys_metrics, ., by = "name") %>% 
-  select(-name)
-
-cardioceptive_models$ca_model %>% 
-   tab_model(dv.labels = cardioceptive_models$metric,
-             title = "Models for cardioceptive accuracy",
-             col.order = col_order,
-             file = "docs/s2a.html",
-             show.se = TRUE,
-             show.stat = TRUE, show.df = TRUE, 
-             p.adjust = "fdr")
-
-cardioceptive_models$hrp_model %>% 
-   tab_model(dv.labels = cardioceptive_models$metric,
-             title = "Models for heart rate perception",
-             col.order = col_order,
-             file = "docs/s2b.html",
-             show.se = TRUE,
-             show.stat = TRUE, show.df = TRUE,
-             p.adjust = "fdr")
-
-```
 
 ```{r}
 phys_trans %>% 
-   select(meanhr, lg_rmssd, marker, ca, hrp) %>% 
-   pivot_longer(ca:hrp, 
-                names_to = "cardio_metric", 
-                values_to = "cardio_value") %>% 
+   select(meanhr, lg_rmssd, marker, hrp) %>% 
    pivot_longer(meanhr:lg_rmssd, 
                 names_to = "name",
                 values_to = "value") %>% 
-   mutate(cardio_metric = recode(cardio_metric, !!!cardioceptive_names)) %>% 
    left_join(phys_metrics, by = "name") %>% 
    ggplot() +
-   aes(x = cardio_value, y = value, color = marker) +
+   aes(x = hrp, y = value, color = marker) +
    geom_point(alpha = .6) +
    facet_wrap(~marker) +
    geom_smooth(method = "lm", 
@@ -774,13 +868,13 @@ phys_trans %>%
                se = FALSE, 
                alpha = .6) +
    scale_color_viridis_d() +
-      labs(title = "Association between cardioceptive metrics and mean HR",
+   labs(title = "Association between Heart rate perception and mean HR",
         subtitle = "The correlation is similar in all tasks",
         color = "Task",
         y = NULL,
-        x = NULL) +
-   facet_grid(metric~cardio_metric, scales = "free") +
-  theme(panel.grid = element_blank())
+        x = "Heart rate perception") +
+   facet_wrap(~metric, scales = "free_y") +
+   theme(panel.grid = element_blank())
 ```
 
 ## H2
@@ -846,7 +940,7 @@ hypo2 %>%
    select(metric, task, cr, term, estimate, std.error, 
           #conf.low, conf.high, 
           statistic, p.value) %>% 
-   mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
+   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
    gt() %>% 
    fmt_number(c("estimate", "std.error", "statistic"
                 #"conf.low", "conf.high"
@@ -876,8 +970,8 @@ hypo2 %>%
             file = "docs/h2ca.html",
             show.se = TRUE,
             show.stat = TRUE, 
-            show.df = TRUE,
-            p.adjust = "fdr"
+            # p.adjust = "fdr",
+            show.df = TRUE
             )
 
 # HRP
@@ -890,9 +984,9 @@ hypo2 %>%
             col.order = col_order,
             file = "docs/h2hrp.html",
             show.se = TRUE,
-            show.stat = TRUE, 
-            show.df = TRUE,
-            p.adjust = "fdr")
+            show.stat = TRUE,
+            # p.adjust = "fdr", 
+            show.df = TRUE)
 
 ```
 
@@ -995,7 +1089,7 @@ hypo3 %>%
    mutate(metric = str_match(model, ".*_(.*)$")[,2],
           term = str_replace(term, "value", metric)) %>% 
    select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
-   mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
+   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
    gt() %>% 
    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
    fmt_number(c("statistic", "p.value"), decimals = 3) %>%
@@ -1084,7 +1178,7 @@ hypo4 %>%
    bind_rows(.id = "model") %>% 
    group_by(model) %>% 
    select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
-   mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
+   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
    gt() %>% 
    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
    fmt_number(c("statistic", "p.value"), decimals = 3) %>%
@@ -1165,96 +1259,6 @@ phys_trans %>%
 
 # Sandbox
 
-## Visualize phys changes
-```{r}
-
-phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
-   pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
-   left_join(phys_metrics, by = "name") %>% 
-   group_by(metric, marker) %>% 
-   summarise(avg_value = mean(value),
-             se_value = sd(value)/sqrt(n()), 
-             .groups = "drop") %>% 
-   ggplot() +
-   aes(x = marker, y = avg_value, group = metric,
-       ymin = avg_value - se_value, ymax = avg_value + se_value) +
-   geom_errorbar(width = .2, alpha = .5) +
-   geom_point(aes(color = metric), show.legend = FALSE) +
-   geom_line(aes(color = metric), 
-             size = 1.2, alpha = .6, 
-             show.legend = FALSE) +
-   facet_wrap(~metric, scales = "free_y") +
-   labs(y = "Mean value (SEM)",
-        x = NULL) +
-   theme(panel.grid = element_blank())
-```
-
-## Phys changes stats
-
-```{r}
-
-phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(phys_metrics$name)) %>% 
-   pivot_longer(all_of(phys_metrics$name)) %>% 
-   group_by(name) %>% 
-   nest() %>% 
-   mutate(model = map(data, 
-                      ~lmer(value ~ marker + 
-                            task_order + sex + scale(bodyfat_percent) + (1|id), 
-                            data = .x))) %>% 
-   pull(model) %>% 
-   set_names(phys_metrics$name) %>% 
-   tab_model(dv.labels = phys_metrics$metric, 
-             pred.labels = c("(Intercept)",
-                             "Task [N-back]",
-                             "Task [Handgrip]",
-                             "Task order [Physical first]",
-                             "Sex [Male]",
-                             "Bodyfat %"),
-             string.stat = "t",
-             string.ci = "95% CI", 
-             # file = "tables/phys_change.html",
-             show.stat = TRUE
-             ) 
-  
-```
-
-## Change  stats in %
-```{r}
-
-phys_trans %>% 
-  select(id, marker, one_of(phys_metrics$name)) %>% 
-  pivot_longer(-c(id, marker)) %>% 
-  group_by(name, marker) %>% 
-  summarise(avg = mean(value, na.rm = TRUE),
-            sd = sd(value, na.rm = TRUE)) %>% 
-  mutate(prop_change = avg / first(avg) %>% round(2)) %>% 
-  ungroup() %>% 
-  pivot_wider(names_from = marker,
-              values_from = c(avg, sd, prop_change)) %>% 
-  left_join(phys_metrics, by = "name") %>% 
-  relocate(metric) %>% 
-  select(-name) %>% 
-  arrange(metric) %>% 
-  gt() %>% 
-  fmt_percent(starts_with("prop_"), decimals = 1) %>% 
-  fmt_number(matches("^avg.*|^sd.*"), decimals = 2) %>%
-  cols_merge(columns = ends_with("_Baseline"),
-             pattern = "{1} ± {2}") %>% 
-  cols_merge(columns = ends_with("_Handgrip"),
-             pattern = "{1} ± {2} ({3})") %>% 
-  cols_merge(columns = ends_with("_N-Back"),
-             pattern = "{1} ± {2} ({3})") %>% 
-  cols_label(metric = "",
-             avg_Baseline = "Baseline",
-             avg_Handgrip = "Handgrip",
-             `avg_N-back` = "N-back") %>% 
-  cols_align(metric, align = "left")
 
 
-  
-```
 
