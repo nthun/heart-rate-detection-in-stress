@@ -258,6 +258,31 @@ stai_sum <-
 
 ```
 
+
+### STAI reliability
+```{r}
+stai_wide <-
+  experiment %>% 
+  select(id, matches("^stai_s_(mental|physical)")) %>% 
+  select(-matches("sum$|mental$|physical$"),
+         -one_of(c("stai_s_mental_t0", 
+                   "stai_s_mental_t1", 
+                   "stai_s_physical_t0", 
+                   "stai_s_physical_t1")))
+
+stai_wide %>% 
+  pivot_longer(-id) %>% 
+  extract(name, 
+          regex = "stai_s_(.*)_t(.)_(.*)$", 
+          into = c("task", "time", "item")) %>% 
+  pivot_wider(names_from = c("task", "time"),
+              values_from = "value") %>% 
+  select(mental_0:physical_1) %>% 
+  psych::alpha()
+
+```
+
+
 ```{r}
 # Table
 stai_sum %>% 
@@ -1258,7 +1283,5 @@ phys_trans %>%
 ```
 
 # Sandbox
-
-
 
 
