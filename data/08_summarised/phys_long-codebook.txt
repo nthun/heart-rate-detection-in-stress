@@ -1,0 +1,26 @@
+id:	participant identifier (accents removed and made lowercase)
+marker: Name of the segment
+eda_avg: Mean EDA (uSiemens)
+eda_increase: Positive change in EDA (all increases summed and divided by the time)
+scr_avg: Mean SCR (uSiemens)
+scr_increase: Positive change in SCR (all increases summed and divided by the time)
+scl_avg: Mean SCL (uSiemens)
+scl_increase: Positive change in SCL (all increases summed and divided by the time)
+start: Start of the segment (relative to the whole experimental session) (hh:mm:ss)
+meanrr: Mean RR interval length (ms)
+medianrr: Median RR interval length (ms)
+meanhr: Mean heart rate	(bpm)
+sdnn: SDNN (ms)
+rmssd: RMSSD (ms)
+nn50: NN50 (ms)
+p_nn50: p_nn50 (ms)
+vlf_percent: Very low freqency %
+lf_percent: Low freqency %
+hf_percent: High freqency %	
+lf_hf: LF/HF ratio	
+lf_n_u: LF in normalized unit
+hf_n_u: HF in normalized unit	
+vlf_abs: Very low freqency (absolute power)
+lf_abs: Low freqency (absolute power)
+hf_abs: High freqency (absolute power)
+recordingtime_s: length of segment (s)
