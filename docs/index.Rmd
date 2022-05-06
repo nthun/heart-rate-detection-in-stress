@@ -963,12 +963,12 @@ hypo2 %>%
    mutate(term = str_replace(term, "value", metric)) %>% 
    group_by(metric, task, cr) %>% 
    select(metric, task, cr, term, estimate, std.error, 
-          #conf.low, conf.high, 
+          conf.low, conf.high, 
           statistic, p.value) %>% 
    # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
    gt() %>% 
-   fmt_number(c("estimate", "std.error", "statistic"
-                #"conf.low", "conf.high"
+   fmt_number(c("estimate", "std.error", "statistic",
+                "conf.low", "conf.high"
                 ), 
                 decimals = 2) %>%
    fmt_number("p.value", decimals = 3) %>%
@@ -980,38 +980,29 @@ hypo2 %>%
                row.striping.background_color = "#EEEEEE"
    )
 
-```
-
-```{r}
-# In tab_models
-# CA
+# Model values
 hypo2 %>% 
-  slice(1:8) %>% 
-  pull(value) %>% 
-  set_names(hypo2$metric_task[1:8]) %>% 
-  tab_model(dv.labels = hypo2$metric_task[1:8],
-            title = "Models for cardioceptive accuracy",
-            col.order = col_order,
-            file = "docs/h2ca.html",
-            show.se = TRUE,
-            show.stat = TRUE, 
-            # p.adjust = "fdr",
-            show.df = TRUE
-            )
-
-# HRP
-hypo2 %>% 
-  slice(9:16) %>% 
-  pull(value) %>% 
-  set_names(hypo2$metric_task[9:16]) %>% 
-  tab_model(dv.labels = hypo2$metric_task[9:16],
-            title = "Models for heart rate perception",
-            col.order = col_order,
-            file = "docs/h2hrp.html",
-            show.se = TRUE,
-            show.stat = TRUE,
-            # p.adjust = "fdr", 
-            show.df = TRUE)
+   pull(value) %>% 
+   set_names(paste(str_match(hypo2$name, "^(\\w+)_.*_mod")[,2],
+                   hypo2$metric_task, 
+                   sep = "_"
+                   )) %>% 
+   map_dfr(glance, .id = "model") %>% 
+   select(model:adj.r.squared, statistic:BIC, df.residual) %>% 
+   relocate(df.residual, .after = df) %>% 
+   gt() %>% 
+   fmt_number(c("r.squared", "adj.r.squared", "statistic",
+                "logLik", "AIC", "BIC"), 
+                decimals = 2) %>%
+   fmt_number(c("df", "df.residual"), decimals = 0) %>%
+   fmt_number("p.value", decimals = 3) %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE")
+  
 
 ```
 
@@ -1081,26 +1072,38 @@ hypo3 <-
                 names_to = c("metric", "task")) %>% 
    group_by(metric, task) %>% 
    # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(`stai_react_N-back`:ca,                  
+   mutate(across(c(`stai_react_N-back`:hrp,                  
                  physical_expected_hr_change:mental_expected_hr_change,
                  value), 
                  ~scale(.x) %>% 
                   as.numeric())) %>%    
    nest() %>% 
-   mutate(`N-back_stai_react` = map(data, 
+   mutate(`N-back_stai_react_ca` = map(data, 
                                      ~lm(`stai_react_N-back` ~ ca + 
                                          mental_expected_hr_change + 
                                          task_order +
                                          value,
                                          data = .x)),
-          Handgrip_stai_react = map(data, 
+          Handgrip_stai_react_ca = map(data, 
                                      ~lm(stai_react_Handgrip ~ ca + 
                                          physical_expected_hr_change + 
                                          task_order + 
                                          value,
+                                         data = .x)),
+          `N-back_stai_react_hrp` = map(data, 
+                                     ~lm(`stai_react_N-back` ~ hrp + 
+                                         mental_expected_hr_change + 
+                                         task_order +
+                                         value,
+                                         data = .x)),
+          Handgrip_stai_react_hrp = map(data, 
+                                     ~lm(stai_react_Handgrip ~ hrp + 
+                                         physical_expected_hr_change + 
+                                         task_order + 
+                                         value,
                                          data = .x))) %>% 
-   pivot_longer(`N-back_stai_react`:Handgrip_stai_react) %>% 
-      filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
+   pivot_longer(`N-back_stai_react_ca`:Handgrip_stai_react_hrp) %>% 
+   filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
           (str_detect(task, "Handgrip") & str_detect(name, "Handgrip"))) %>% 
    mutate(name = str_replace(name, "N-back", task)) %>% 
    mutate(name = str_replace(name, "react", metric)) %>% 
@@ -1111,7 +1114,7 @@ hypo3 %>%
    set_names(hypo3$name) %>% 
    map_dfr(tidy, conf.int = TRUE, .id = "model") %>% 
    group_by(model) %>% 
-   mutate(metric = str_match(model, ".*_(.*)$")[,2],
+   mutate(metric = str_match(model, ".*_(.*)_.*$")[,2],
           term = str_replace(term, "value", metric)) %>% 
    select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
    # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
@@ -1126,14 +1129,14 @@ hypo3 %>%
                row.striping.background_color = "#EEEEEE"
    )   
 
-hypo3 %>% 
-   pull(value) %>% 
-   set_names(hypo3$name) %>% 
-   map_dfr(glance, conf.int = TRUE, .id = "model") %>% 
-   arrange(model) %>% 
-   gt() %>% 
-   fmt_number(c(r.squared:statistic, logLik:deviance), decimals = 2) %>% 
-   fmt_number(p.value, decimals = 3)
+# hypo3 %>% 
+#    pull(value) %>% 
+#    set_names(hypo3$name) %>% 
+#    map_dfr(glance, conf.int = TRUE, .id = "model") %>% 
+#    arrange(model) %>% 
+#    gt() %>% 
+#    fmt_number(c(r.squared:statistic, logLik:deviance), decimals = 2) %>% 
+#    fmt_number(p.value, decimals = 3)
 
 ```
 
@@ -1284,4 +1287,99 @@ phys_trans %>%
 
 # Sandbox
 
+## Correlation of STAI and phys reactivity measures
+```{r}
 
+n_back_corr <-
+  reactivity %>% 
+  correlation(select = c("meanhr_react_N-back", "hf.percent_react_N-back",
+                         "rmssd_react_N-back", "eda.avg_react_N-back"),
+              select2 = "stai_react_N-back", 
+              p_adjust = "none") %>% 
+  summary() %>% 
+  as_tibble() %>% 
+  mutate(Parameter = str_remove(Parameter, "_react_N-back"))
+
+handgrip_corr <-
+  reactivity %>% 
+  correlation(select = c("meanhr_react_Handgrip", "hf.percent_react_Handgrip",
+                         "rmssd_react_Handgrip", "eda.avg_react_Handgrip"),
+              select2 = "stai_react_Handgrip", 
+              p_adjust = "none") %>% 
+  summary() %>% 
+  as_tibble() %>% 
+  mutate(Parameter = str_remove(Parameter, "_react_Handgrip"))
+
+
+left_join(n_back_corr, handgrip_corr, 
+          by = "Parameter") %>% 
+  left_join(phys_metrics, by = c("Parameter" = "name")) %>% 
+  transmute(metric, 
+            `N-back` = round(`stai_react_N-back`, 2), 
+            Handgrip = stai_react_Handgrip) %>% 
+  print_html()
+
+```
+
+H4 alternative models
+```{r}
+# Build models
+hypo4 <-
+   reactivity %>% 
+   select(id, starts_with("meanhr_")) %>% 
+   # Put HR reactivity metrics expected and experienced change together
+   left_join(select(experiment, id, 
+                    physical_expected_hr_change,
+                    physical_experienced_hr_change,
+                    mental_expected_hr_change,
+                    mental_experienced_hr_change, 
+                    bodyfat_percent, sex, task_order), by = "id") %>% 
+   # Create a redundant dataset to run several regressions at once
+   pivot_longer(c(`meanhr_react_N-back`:meanhr_react_Handgrip),
+                names_to = c("metric","task"),
+                names_pattern = "(.*)_react_(.*)",
+                values_to = "hr_reactivity") %>% 
+      group_by(metric, task) %>% 
+   # Scale all numeric vaiarables (by metric and task)
+   mutate(across(c(physical_expected_hr_change:bodyfat_percent, hr_reactivity), 
+                 ~scale(.x) %>% 
+                  as.numeric())) %>% 
+   nest() %>% 
+   mutate(Handgrip = map(data, 
+                            ~lm(physical_experienced_hr_change ~ 
+                                physical_expected_hr_change +
+                                hr_reactivity +
+                                bodyfat_percent + sex + task_order, 
+                                data = .x)),
+          `N-back` = map(data, 
+                            ~lm(mental_experienced_hr_change ~ 
+                                mental_expected_hr_change +
+                                hr_reactivity +
+                                bodyfat_percent + sex + task_order, 
+                                data = .x))
+          ) %>% 
+   pivot_longer(Handgrip:`N-back`) %>% 
+   filter(task == name) %>% 
+   ungroup()
+
+hypo4 %>% 
+   pull(value) %>% 
+   set_names(hypo4$name) %>% 
+   map(tidy, conf.int = TRUE) %>% 
+   bind_rows(.id = "model") %>% 
+   group_by(model) %>% 
+   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
+   gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   )
+
+
+```
