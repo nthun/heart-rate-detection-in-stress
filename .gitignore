@@ -2,3 +2,5 @@
 .Rhistory
 .RData
 .Ruserdata
+data/
+!data/08_summarised/
