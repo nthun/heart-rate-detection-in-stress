@@ -1409,3 +1409,73 @@ hypo4 %>%
 
 
 ```
+
+## HBP and HRP corr figure
+```{r}
+
+hrp_hbp <-
+  experiment %>% 
+  select(hrp, ca) %>% 
+  ggplot() +
+  aes(x = ca, y = hrp) +
+  geom_point(alpha = .8) +
+  geom_smooth(method = lm) +
+  labs(x = "Heart beat perception",
+       y = "Heart rate perception") +
+  theme(panel.grid = element_blank())
+  
+
+ggExtra::ggMarginal(hrp_hbp, type = "density", alpha = .6,
+                    xparams = list(fill = "salmon"),
+                    yparams = list(fill = "cyan")
+                    )
+```
+
+# Create path diagram
+
+```{r}
+# if physiological changes, cardioceptive accuracy, or expected HR change predicted STAI-S change in the respective tasks.
+
+library(lavaan)
+library(semPlot)
+
+
+path_df <-
+   reactivity %>% 
+   select(id, starts_with("meanhr_"),
+          stai_react_Handgrip,
+          `stai_react_N-back`) %>% 
+   # Put HR reactivity metrics expected and experienced change together
+   left_join(select(experiment, id, bodyfat_percent, sex, task_order,
+                    `expected_hr_change_Handgrip` = physical_expected_hr_change,
+                    `experienced_hr_change_Handgrip` = physical_experienced_hr_change,
+                    `expected_hr_change_N-back` = mental_expected_hr_change,
+                    `experienced_hr_change_N-back` = mental_experienced_hr_change), 
+             by = "id") %>%
+   # Create a redundant dataset to run several regressions at once
+   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order"),
+                names_to = c("metric","task"),
+                names_pattern = "^(.*)_.*_(.*)",
+                values_to = "value") %>%  
+  pivot_wider(names_from = "metric", 
+              values_from = "value")
+
+   
+hr_model <- 
+  "stai ~ expected_hr
+   stai ~ experienced_hr
+   experienced_hr ~ expected_hr"
+
+
+hr_path <- sem(model = hr_model, data = path_df, group = "task")
+
+summary(hr_path)
+
+semPlot::semPaths(hr_path, 
+                  what = "path", 
+                  whatLabels = "std")
+
+tidySEM::graph_sem(model = hr_path)
+
+```
+
