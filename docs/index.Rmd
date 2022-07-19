@@ -13,7 +13,7 @@ editor_options:
 ---
 
 ```{r, echo = TRUE, eval = FALSE, include = FALSE}
-install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats"))
+install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "naniar", "skmir"))
 ```
 
 # Project setup 
@@ -1463,7 +1463,7 @@ path_df <-
 # Create path models
 
 library(lavaan)
-library(semPlot)
+library(tidySEM)
 
 hr_model2 <- 
   "stai ~ expectedhr
@@ -1479,11 +1479,11 @@ hr_path2 <- sem(model = hr_model2, data = path_df, group = "task")
 
 # tidySEM way of building and running sem
 model <-
-  tidy_sem(path_df) %>% 
-  add_paths(hr_model2) 
+  tidy_sem(path_df) %>%
+  add_paths(hr_model2)
 
 fit_model <-
-  model %>% 
+  model %>%
   estimate_lavaan()
 
 # Return results
