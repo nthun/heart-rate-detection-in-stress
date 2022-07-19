@@ -1434,11 +1434,7 @@ ggExtra::ggMarginal(hrp_hbp, type = "density", alpha = .6,
 # Create path diagram
 
 ```{r}
-# if physiological changes, cardioceptive accuracy, or expected HR change predicted STAI-S change in the respective tasks.
-
-library(lavaan)
-library(semPlot)
-
+# Prepare data
 
 path_df <-
    reactivity %>% 
@@ -1447,10 +1443,10 @@ path_df <-
           `stai_react_N-back`) %>% 
    # Put HR reactivity metrics expected and experienced change together
    left_join(select(experiment, id, bodyfat_percent, sex, task_order,
-                    `expected_hr_change_Handgrip` = physical_expected_hr_change,
-                    `experienced_hr_change_Handgrip` = physical_experienced_hr_change,
-                    `expected_hr_change_N-back` = mental_expected_hr_change,
-                    `experienced_hr_change_N-back` = mental_experienced_hr_change), 
+                    `expectedhr_change_Handgrip` = physical_expected_hr_change,
+                    `experiencedhr_change_Handgrip` = physical_experienced_hr_change,
+                    `expectedhr_change_N-back` = mental_expected_hr_change,
+                    `experiencedhr_change_N-back` = mental_experienced_hr_change), 
              by = "id") %>%
    # Create a redundant dataset to run several regressions at once
    pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order"),
@@ -1458,24 +1454,90 @@ path_df <-
                 names_pattern = "^(.*)_.*_(.*)",
                 values_to = "value") %>%  
   pivot_wider(names_from = "metric", 
-              values_from = "value")
+              values_from = "value") %>% 
+  select(-(bodyfat_percent:task_order))
+```
 
-   
+
+```{r}
+# Create path models
+
+library(lavaan)
+library(semPlot)
+
+hr_model2 <- 
+  "stai ~ expectedhr
+   stai ~ experiencedhr
+   stai ~ meanhr
+   experiencedhr ~ expectedhr
+   experiencedhr ~ meanhr
+   meanhr ~ expectedhr
+"
+
+# Fit model in lavaan
+hr_path2 <- sem(model = hr_model2, data = path_df, group = "task")
+
+# tidySEM way of building and running sem
+model <-
+  tidy_sem(path_df) %>% 
+  add_paths(hr_model2) 
+
+fit_model <-
+  model %>% 
+  estimate_lavaan()
+
+# Return results
+summary(hr_path2, standardized = TRUE, fit.measures = TRUE)
+
+# Plotting SEM
+# Format node labels
+pretty_nodes <-
+  get_nodes(hr_path2, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected HR",
+                        experiencedhr = "Perceived HR",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔHR"))
+
+# Create a layout
+layout2 <- get_layout("", "stai", "",
+                     "", "", "",
+                     "", "meanhr", "",
+                     "expectedhr", "", "experiencedhr",
+                     rows = 4)
+
+# Plotting SEM
+graph_sem(hr_path2, 
+          # Format edges (to std)
+          edges = get_edges(hr_path2, label = "est_sig_std") %>% 
+                  filter(op != "~~"),
+          nodes = pretty_nodes,
+          layout = layout2)
+
+
+
+
+```
+
+```{r eval=FALSE, include=FALSE}
+# Simple model (to delete?)
+
 hr_model <- 
-  "stai ~ expected_hr
-   stai ~ experienced_hr
-   experienced_hr ~ expected_hr"
-
+  "stai ~ expectedhr
+   stai ~ experiencedhr
+   experiencedhr ~ expectedhr"
 
 hr_path <- sem(model = hr_model, data = path_df, group = "task")
 
-summary(hr_path)
+layout <- get_layout("", "stai", "",
+                     "expectedhr", "", "experiencedhr", 
+                     rows = 2)
 
-semPlot::semPaths(hr_path, 
-                  what = "path", 
-                  whatLabels = "std")
-
-tidySEM::graph_sem(model = hr_path)
+graph_sem(model = hr_path, 
+          edges = get_edges(hr_path, label = "est_sig_std") %>% 
+                  filter(op != "~~"),
+          nodes = pretty_nodes,
+          layout = layout)
 
 ```
 
