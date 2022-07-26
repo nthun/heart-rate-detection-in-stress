@@ -8,12 +8,12 @@ output:
    code_download: true
    toc: true
    toc_float: true
-editor_options: 
+editor_options:
   chunk_output_type: console
 ---
 
 ```{r, echo = TRUE, eval = FALSE, include = FALSE}
-install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "naniar", "skmir"))
+install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "naniar", "skmir", "lavaan", "tidySEM", "ggExtra"))
 ```
 
 # Project setup 
@@ -1306,8 +1306,7 @@ phys_trans %>%
    distinct(id, .keep_all = TRUE) %>%
    correlation(
                select = c("ca", "hrp"),
-               p_adjust = "none") %>% 
-   print_html()
+               p_adjust = "none")
 
 ```
 
@@ -1442,20 +1441,22 @@ path_df <-
           stai_react_Handgrip,
           `stai_react_N-back`) %>% 
    # Put HR reactivity metrics expected and experienced change together
-   left_join(select(experiment, id, bodyfat_percent, sex, task_order,
+   left_join(select(experiment, 
+                    id, bodyfat_percent, sex, task_order, hrp,
                     `expectedhr_change_Handgrip` = physical_expected_hr_change,
                     `experiencedhr_change_Handgrip` = physical_experienced_hr_change,
                     `expectedhr_change_N-back` = mental_expected_hr_change,
                     `experiencedhr_change_N-back` = mental_experienced_hr_change), 
              by = "id") %>%
    # Create a redundant dataset to run several regressions at once
-   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order"),
+   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order", "hrp"),
                 names_to = c("metric","task"),
                 names_pattern = "^(.*)_.*_(.*)",
                 values_to = "value") %>%  
   pivot_wider(names_from = "metric", 
               values_from = "value") %>% 
-  select(-(bodyfat_percent:task_order))
+  # select(-(bodyfat_percent:task_order)) %>% 
+  force()
 ```
 
 
@@ -1465,79 +1466,91 @@ path_df <-
 library(lavaan)
 library(tidySEM)
 
-hr_model2 <- 
+hr_model <- 
   "stai ~ expectedhr
    stai ~ experiencedhr
    stai ~ meanhr
+   stai ~ task_order
    experiencedhr ~ expectedhr
    experiencedhr ~ meanhr
+   experiencedhr ~ task_order
+   expectedhr ~ task_order
    meanhr ~ expectedhr
+   meanhr ~ task_order + sex + bodyfat_percent
 "
 
 # Fit model in lavaan
-hr_path2 <- sem(model = hr_model2, data = path_df, group = "task")
+hr_path <- sem(model = hr_model2, data = path_df, group = "task")
 
 # tidySEM way of building and running sem
 model <-
   tidy_sem(path_df) %>%
-  add_paths(hr_model2)
+  add_paths(hr_model)
 
 fit_model <-
   model %>%
   estimate_lavaan()
 
 # Return results
-summary(hr_path2, standardized = TRUE, fit.measures = TRUE)
+summary(hr_path, standardized = TRUE, fit.measures = TRUE)
 
 # Plotting SEM
 # Format node labels
 pretty_nodes <-
-  get_nodes(hr_path2, label = "name") %>% 
+  get_nodes(hr_path, label = "name") %>% 
   mutate(label = recode(label,
                         expectedhr = "Expected HR",
                         experiencedhr = "Perceived HR",
                         stai = "ΔSTAI",
-                        meanhr = "ΔHR"))
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+pretty_edges <- 
+                  # Format edges (to std)
+  get_edges(hr_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent"))
+  
 
 # Create a layout
-layout2 <- get_layout("", "stai", "",
-                     "", "", "",
+layout <- get_layout("", "stai", "",
+                     "", "", "", 
                      "", "meanhr", "",
                      "expectedhr", "", "experiencedhr",
                      rows = 4)
 
 # Plotting SEM
-graph_sem(hr_path2, 
-          # Format edges (to std)
-          edges = get_edges(hr_path2, label = "est_sig_std") %>% 
-                  filter(op != "~~"),
+graph_sem(hr_path, 
+          edges = pretty_edges,
           nodes = pretty_nodes,
-          layout = layout2)
-
-
-
+          layout = layout
+          )
 
 ```
 
 ```{r eval=FALSE, include=FALSE}
 # Simple model (to delete?)
 
-hr_model <- 
+hr_model2 <- 
   "stai ~ expectedhr
    stai ~ experiencedhr
    experiencedhr ~ expectedhr"
 
-hr_path <- sem(model = hr_model, data = path_df, group = "task")
+hr_path2 <- sem(model = hr_model2, data = path_df, group = "task")
 
-layout <- get_layout("", "stai", "",
+layout2 <- get_layout("", "stai", "",
                      "expectedhr", "", "experiencedhr", 
                      rows = 2)
 
-graph_sem(model = hr_path, 
-          edges = get_edges(hr_path, label = "est_sig_std") %>% 
+graph_sem(model = hr_path2, 
+          edges = get_edges(hr_path2, label = "est_sig_std") %>% 
                   filter(op != "~~"),
           nodes = pretty_nodes,
-          layout = layout)
+          layout = layout2)
 
 ```
 
