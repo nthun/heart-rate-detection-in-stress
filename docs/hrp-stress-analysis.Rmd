@@ -1,17 +1,16 @@
 ---
-title: "Heart rate detection and stress"
+title: "Heart rate detection and stress analysis"
 author: "Tamas Nagy"
-date: "`r Sys.Date()`"
+date: "2022-07-26"
 output: 
   html_document:
    theme: spacelab
    code_download: true
    toc: true
    toc_float: true
-editor_options:
+editor_options: 
   chunk_output_type: console
 ---
-
 ```{r, echo = TRUE, eval = FALSE, include = FALSE}
 install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "naniar", "skmir", "lavaan", "tidySEM", "ggExtra"))
 ```
@@ -32,8 +31,11 @@ library(correlation)
 library(naniar)
 library(patchwork)
 library(skimr)
+library(lavaan)
+library(tidySEM)
+library(semTable)
 
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE,
                       fig.width = 9, fig.height = 6)
 
 theme_set(theme_light())
@@ -102,83 +104,21 @@ react_vars <-
 
 The following analysis report contains the descriptive and inferential statistics for the experiment that investigated how physiological and subjective arousal might be mediated by cardioceptive accuracy.
 
-To access the previous version, with cognitive tasks separately:
-https://nthun.github.io/heart-rate-detection-in-stress/preliminary_results.html 
 
-```{r data_read, include = FALSE}
-
-experiment_data_raw <- 
-  googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/19AcUrnOCxCH_Huu1yQ4JjEuJWljFRzhFQPYIGU1nhj0/edit#gid=57027312") %>% 
-  janitor::clean_names() %>% 
-  mutate(code = as.character(code))
-
-phys_data <- 
-  read_csv(here::here("data/08_summarised/phys_long_merged.csv")) %>% 
-  mutate(marker = recode(marker, !!!renamed_markers))
-
-```
-
-# Experiment data processing
-## Calculate cardioreceptive metrics
-
-Cardioreceptive accuracy, bias, and heart rate perception were calculated using the formulas:  
-
-- ca_ = 1 - |(hr_XXobj - hr_XXszubj)/ hr_XXobj| 
-- hrp = resting_hr_estimated / resting_hr 
-
-XX stands for 25,35,50
-With the average calculated for each pearson. 
-
+# Read data
 
 ```{r}
-# Calculate cardioceptive metrics
-cardio <-
-   experiment_data_raw %>%
-   transmute(id = stri_trans_general(code, "Latin-ASCII") %>%
-                  str_to_lower(),
-             ca_25 = 1 - abs((hr_25obj - hr_25szubj) / hr_25obj),
-             ca_35 = 1 - abs((hr_35obj - hr_35szubj) / hr_35obj),
-             ca_50 = 1 - abs((hr_50obj - hr_50szubj) / hr_50obj),
-             ca = (ca_25 + ca_35 + ca_50)/3,
-             hrp = resting_hr_estimated / resting_hr,
-             hrp_group = cut_number(hrp, 
-                                n = 3, 
-                                labels = c("Low HRP",
-                                           "Medium HRP",
-                                           "High HRP"),
-                                ordered_result = TRUE)
-)
+phys_trans <- 
+  read_csv(here::here("data/processed/physiology_clean.csv"))
 
-ca_alpha <-
-   cardio %>% 
-   select(starts_with("ca_")) %>% 
-   psych::alpha() %>% 
-   .[["total"]] %>% 
-   .[["std.alpha"]]
+experiment <- 
+  read_csv(here::here("data/processed/survey_clean.csv"))
+
+reactivity <-
+  read_csv(here::here("data/processed/reactivity_clean.csv"))
 
 ```
 
-Cronbach alpha for cardioceptive accuracy: `r round(ca_alpha, 2)`
-
-
-```{r}
-experiment <-
-   experiment_data_raw %>%
-   rename(id = code, task_order = mental_order_1_2) %>%
-   mutate(
-      id = stri_trans_general(id, "Latin-ASCII") %>%
-           str_to_lower(),
-      sex = recode(sex, `1` = "Male", `2` = "Female"),
-      bodyweight = as.numeric(bodyweight),
-      bmi = bodyweight / (bodyheight / 100) ^ 2,
-      task_order = if_else(task_order == 1,
-                           "Cognitive first",
-                           "Physical first") %>%
-                   as.factor()) %>%
-   select(-starts_with("marker_")) %>%
-   left_join(cardio, by = "id")
-
-```
 
 # Sample characteristics
 
@@ -221,24 +161,12 @@ experiment %>%
 ```
 
 
-# Subjective response to stress
-
-We tested if the tasks were perceived as stressful.  
-
-## STAI-S
+# Subjective response to stress: STAI-S
 
 Controlling for the baseline level of anxiety (measured in the beginning of the session) and the order of the tasks, we found a significant interaction of task and measurement, i.e. the cognitive task was associated with a STAI-S increase over time, while the physical task did not show a significant change.
 
-```{r}
-# Calculate STAI-S reactivity
-stai_reactivity <-
-   experiment %>% 
-   select(id, stai_s_mental_t0_sum,  stai_s_mental_t1_sum, stai_s_physical_t0_sum, stai_s_physical_t1_sum) %>% 
-   transmute(id,
-             `stai_react_N-back` = stai_s_mental_t1_sum - stai_s_mental_t0_sum,
-             stai_react_Handgrip = stai_s_physical_t1_sum - stai_s_physical_t0_sum)
 
-   
+```{r}
 stai <-
    experiment %>% 
    select(id, ends_with("_sum"), task_order) %>% 
@@ -256,34 +184,6 @@ stai_sum <-
    mutate(stai_prop = stai_avg/first(stai_avg)) %>% 
    ungroup()
 
-```
-
-
-### STAI reliability
-```{r}
-stai_wide <-
-  experiment %>% 
-  select(id, matches("^stai_s_(mental|physical)")) %>% 
-  select(-matches("sum$|mental$|physical$"),
-         -one_of(c("stai_s_mental_t0", 
-                   "stai_s_mental_t1", 
-                   "stai_s_physical_t0", 
-                   "stai_s_physical_t1")))
-
-stai_wide %>% 
-  pivot_longer(-id) %>% 
-  extract(name, 
-          regex = "stai_s_(.*)_t(.)_(.*)$", 
-          into = c("task", "time", "item")) %>% 
-  pivot_wider(names_from = c("task", "time"),
-              values_from = "value") %>% 
-  select(mental_0:physical_1) %>% 
-  psych::alpha()
-
-```
-
-
-```{r}
 # Table
 stai_sum %>% 
    select(-stai_se) %>% 
@@ -323,6 +223,7 @@ stai %>%
 ```
 </div>
 
+
 ```{r}
 # Visualize
 stai_sum %>% 
@@ -348,114 +249,9 @@ stai_sum %>%
 
 ```
 
-## Subjective stress (VAS)
-
-Most of the participants regarded the cognitive stress more stressful than the physical stress.
-
-```{r}
-experiment %>% 
-   select(id, mental_experienced_stress, physical_experienced_stress) %>% 
-   pivot_longer(-id) %>% 
-   mutate(name = str_remove(name, "_experienced_stress") %>% 
-                 recode(!!!renamed_markers)) %>% 
-   ggplot() +
-   aes(y = value, x = name) +
-   geom_violin(aes(fill = name), alpha = .8, show.legend = FALSE) +
-   geom_line(aes(group = id), alpha = .2) +
-   geom_boxplot(show.legend = FALSE, width = .25, outlier.alpha = 0, alpha = .6) +
-   geom_quasirandom(groupOnX = TRUE) +
-   labs(x = NULL, 
-        y = "On a scale of 0-100, how stressful was the task for you?",
-        title = "Distribution of Experienced stress by task",
-        subtitle = "Physical stress was percieved as less stressful.")
-
-```
-
-The subjective stress measure also showed, that participants regarded the mental stressor to be more stressful than the physical stressor.
-
-```{r}
-experiment %>% 
-   select(id, mental_experienced_stress, physical_experienced_stress, stai_s_t0_sum, task_order) %>% 
-   pivot_longer(-c(id, stai_s_t0_sum, task_order)) %>% 
-   mutate(name = str_remove(name, "_experienced_stress") %>% 
-                 recode(!!!renamed_markers)) %>% 
-  lmer(value ~ name + stai_s_t0_sum + task_order + (1|id), data = .) %>% 
-     tab_model(dv.labels = "STAI-S", 
-             show.stat = TRUE,
-             show.df = TRUE,
-             show.std = TRUE)
-
-experiment %>% 
-   select(id, mental_experienced_stress, physical_experienced_stress) %>% 
-   pivot_longer(-id) %>% 
-   mutate(name = str_remove(name, "_experienced_stress") %>% 
-                 recode(!!!renamed_markers)) %>% 
-  t.test(value ~ name, data = ., paired = TRUE)
-
-```
-
 # Psychophysiological response to stress
 
-## Outlier detection
-
-We first flag outliers (calculated as outside of `r outlier_treshold_sd` SDs), and check how many can be found in each metric.
-
 ```{r}
-outlier_flagged <- 
-   phys_data %>% 
-   pivot_longer(eda_avg:hf_abs) %>% 
-   group_by(name) %>% 
-   mutate(outlier = if_else(abs(scale(value)) > outlier_treshold_sd, TRUE, FALSE),
-          .before = value) %>% 
-   ungroup()
-
-outlier_flagged %>% 
-   group_by(name) %>% 
-   summarise( n_outlier = sum(outlier, na.rm = TRUE),
-              perc_outlier = mean(outlier, na.rm = TRUE)) %>% 
-   arrange(-perc_outlier) %>% 
-   gt() %>% 
-   fmt_percent(perc_outlier) %>% 
-   cols_label(name = "Name",
-              n_outlier = "N outlier",
-              perc_outlier = "% outlier") %>% 
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey")
-
-outlier_flagged %>% 
-   ggplot() +
-   aes(x = value, fill = outlier) +
-   geom_histogram() +
-   facet_wrap(~name, scales = "free") +
-   scale_fill_manual(values = c("lightblue", "red")) +
-   labs(x = NULL, y = NULL,
-        title = "Histogram of the physiological variables",
-        subtitle = str_glue("Outliers (red) are identified as values outside of {outlier_treshold_sd} SD"),
-        fill = "Outlier")
-
-```
-
-## Data cleaning and processing
-
-We remove outliers, and apply natural log+1 transformation on the values. Values show that the EDA and SCR increase variables should be analyzed using a GLM with exponential distribution.
-
-```{r}
-
-phys_trans <-
-   outlier_flagged %>% 
-   # Remove outliers
-   filter(!outlier) %>% 
-   # Create log transformed values
-   mutate(lg = log(value + 1)) %>% 
-   pivot_wider(names_from = "name",
-               values_from = c(value, lg)) %>% 
-   set_names(str_remove(names(.), "value_")) %>% 
-   # Join participant data
-   left_join(select(experiment, 
-                    id, sex, age, bodyfat_percent, bmi, task_order,
-                    ca, hrp), 
-             by = "id")
-
 phys_trans %>% 
    select(starts_with("lg_")) %>% 
    pivot_longer(everything()) %>% 
@@ -467,35 +263,6 @@ phys_trans %>%
         title = "Histogram of the log+1 transformed physiological variables",
         subtitle = "Outliers have been removed")
 
-
-```
-
-## Calculate physiological reactivity metrics
-
-Reactivity values were calculated for HR, HF%, RMSSD, and EDA, by subtracting the baseline (t0) from the post-stress measurement (t1) for each task.
-
-```{r}
-#  Calculate reactivity statistics
-reactivity <-
-   phys_trans %>% 
-   select(id, marker, meanhr, hf_percent, rmssd, eda_avg) %>% 
-   pivot_wider(names_from = marker,
-               values_from = c("meanhr", "hf_percent", "rmssd","eda_avg")) %>% 
-   transmute(id,
-             #HR
-             `meanhr_react_N-back` = `meanhr_N-back` - meanhr_Baseline,
-             meanhr_react_Handgrip = meanhr_Handgrip - meanhr_Baseline,
-             # HF
-             `hf.percent_react_N-back` = `hf_percent_N-back` - hf_percent_Baseline,
-             hf.percent_react_Handgrip = hf_percent_Handgrip - hf_percent_Baseline,
-             # RMSSD
-             `rmssd_react_N-back` = `rmssd_N-back` - rmssd_Baseline,
-             rmssd_react_Handgrip = rmssd_Handgrip - rmssd_Baseline,
-             #EDA
-             `eda.avg_react_N-back` = `eda_avg_N-back` - eda_avg_Baseline,
-             eda.avg_react_Handgrip = eda_avg_Handgrip - eda_avg_Baseline) %>% 
-   left_join(stai_reactivity, by = "id")
-   
 reactivity %>% 
    pivot_longer(-id) %>% 
    ggplot() +
@@ -505,18 +272,6 @@ reactivity %>%
    labs(title = "Reactivity histograms of key metrics")
 
 ```
-
-## Missing data analysis
-
-```{r}
-phys_data %>% 
-   select(eda_avg:hf_abs) %>% 
-   group_by() %>% 
-   miss_var_summary() %>% 
-   print_html()
-
-```
-
 
 # Analysis of the effects of the tasks on physiological variables
 
@@ -552,7 +307,6 @@ log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive 
 Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
 ```{r}
-
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
           all_of(phys_metrics$name[1:4])) %>% 
@@ -650,7 +404,6 @@ Data had to be transformed to be applicable for statistical modeling. Average va
 ### Results
 EDA and SCL average were significantly larger than baseline. Cognitive tasks were associated with a smaller increase, while the physical task was associated with a larger increase.
 For SCR average, none of the tasks exerted a significant effect.
-For the increase statistics, only the physical task showed significantly larger value than baseline.
 
 Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
 
@@ -673,25 +426,8 @@ skin_avg_mod <-
    pull(model) %>% 
    set_names(skin_avg)
 
-# GLMEMs for increase values
-skin_increase_mod <-
-   phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(skin_increase)) %>% 
-   pivot_longer(all_of(skin_increase), values_drop_na = TRUE) %>% 
-   # Center, multiply by 1000, and add 1
-   mutate(std_value = scale(value, scale = FALSE)*1000+1) %>% 
-   group_by(name) %>% 
-   nest() %>% 
-   mutate( model = map(data, ~glmer(std_value ~ marker + task_order + sex +
-                                                scale(bodyfat_percent) + (1|id),
-                                    family = Gamma(link = "inverse"),
-                                    data = .x))) %>% 
-   pull(model) %>% 
-   set_names(skin_increase)
-
-tab_model( c(skin_avg_mod, skin_increase_mod),
-           dv.labels = c(skin_avg, skin_increase),
+tab_model( skin_avg_mod,
+           dv.labels = skin_avg,
            show.loglik = TRUE,
            show.aicc = TRUE)
 
@@ -700,8 +436,8 @@ tab_model( c(skin_avg_mod, skin_increase_mod),
 ```{r}
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(skin_avg), all_of(skin_increase)) %>% 
-   pivot_longer(c(all_of(skin_avg), all_of(skin_increase)), values_drop_na = TRUE) %>%
+          all_of(skin_avg)) %>% 
+   pivot_longer(all_of(skin_avg), values_drop_na = TRUE) %>%
    group_by(name, marker) %>% 
    summarise(avg_value = mean(value),
              se_value = sd(value)/sqrt(n()), 
@@ -719,6 +455,7 @@ phys_trans %>%
   theme(panel.grid = element_blank())
 ```
 
+
 ```{r eval=FALSE, include=FALSE}
 # Check if the order influenced the metrics
 # For average metrics, it did not. SCR showed a strange pattern.
@@ -727,8 +464,8 @@ phys_trans %>%
 
 phys_trans %>% 
    select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(skin_avg), all_of(skin_increase)) %>% 
-   pivot_longer(c(all_of(skin_avg), all_of(skin_increase)), values_drop_na = TRUE) %>%
+          all_of(skin_avg)) %>% 
+   pivot_longer(c(all_of(skin_avg)), values_drop_na = TRUE) %>%
    group_by(name, task_order, marker) %>% 
    summarise(avg_value = mean(value),
              se_value = sd(value)/sqrt(n()), 
@@ -1307,7 +1044,7 @@ phys_trans %>%
 
 ```
 
-# Sandbox
+# Misc
 
 ## Correlation of STAI and phys reactivity measures
 ```{r}
@@ -1428,10 +1165,7 @@ ggExtra::ggMarginal(hrp_hbp, type = "density", alpha = .7,
                     )
 ```
 
-# Create path diagram
-
-TODO: include moderation into the path model
-TODO: create power sensitivity analyis for pm
+## Create path diagram
 
 ```{r}
 # Prepare data
@@ -1455,18 +1189,12 @@ path_df <-
                 names_pattern = "^(.*)_.*_(.*)",
                 values_to = "value") %>%  
   pivot_wider(names_from = "metric", 
-              values_from = "value") %>% 
-  # select(-(bodyfat_percent:task_order)) %>% 
-  force()
+              values_from = "value")
 ```
 
 
 ```{r}
 # Create path models
-
-library(lavaan)
-library(tidySEM)
-library(semTable)
 
 hr_model <- 
   "stai ~ expectedhr
@@ -1483,6 +1211,15 @@ hr_model <-
 
 # Fit model in lavaan
 hr_path <- sem(model = hr_model, data = path_df, group = "task")
+
+# tidySEM way of building and running sem
+model <-
+  tidy_sem(path_df) %>%
+  add_paths(hr_model)
+
+fit_model <-
+  model %>%
+  estimate_lavaan()
 
 # Return results
 summary(hr_path, standardized = TRUE, fit.measures = TRUE)

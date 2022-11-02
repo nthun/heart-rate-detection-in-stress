@@ -242,7 +242,6 @@ stai_sum %>%
 
 ```
 
----
 <div align="center">
 ```{r}
 # Stats
@@ -263,8 +262,6 @@ stai %>%
              )
 ```
 </div>
-
----
 
 ```{r}
 # Visualize
