@@ -1,0 +1,154 @@
+---
+title: "Create path model"
+author: "Tamas Nagy"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+TODO: include moderation into the path model
+TODO: create power sensitivity analyis for pm
+
+```{r}
+# Prepare data
+
+path_df <-
+   reactivity %>% 
+   select(id, starts_with("meanhr_"),
+          stai_react_Handgrip,
+          `stai_react_N-back`) %>% 
+   # Put HR reactivity metrics expected and experienced change together
+   left_join(select(experiment, 
+                    id, bodyfat_percent, sex, task_order, hrp,
+                    `expectedhr_change_Handgrip` = physical_expected_hr_change,
+                    `experiencedhr_change_Handgrip` = physical_experienced_hr_change,
+                    `expectedhr_change_N-back` = mental_expected_hr_change,
+                    `experiencedhr_change_N-back` = mental_experienced_hr_change), 
+             by = "id") %>%
+   # Create a redundant dataset to run several regressions at once
+   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order", "hrp"),
+                names_to = c("metric","task"),
+                names_pattern = "^(.*)_.*_(.*)",
+                values_to = "value") %>%  
+  pivot_wider(names_from = "metric", 
+              values_from = "value") %>% 
+  # select(-(bodyfat_percent:task_order)) %>% 
+  mutate(across(where(is.numeric), ~scale(.x, scale = FALSE)[,1]),
+         meanhr_x_hrp = meanhr*hrp) %>%
+  force()
+```
+
+
+```{r}
+# Create path models
+
+library(lavaan)
+library(tidySEM)
+library(semTable)
+
+hr_model <- 
+  "stai ~ expectedhr + experiencedhr + meanhr + hrp + meanhr:hrp + task_order
+   experiencedhr ~ expectedhr + meanhr + task_order
+   expectedhr ~ task_order
+   meanhr ~ expectedhr + hrp + task_order + sex + bodyfat_percent
+"
+
+# Fit model in lavaan
+hr_path <- sem(model = hr_model, data = path_df, group = "task")
+
+# Return results
+summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+
+# Plotting SEM
+# Format node labels
+pretty_nodes <-
+  get_nodes(hr_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected HR",
+                        experiencedhr = "Perceived HR",
+                        `meanhr:hrp` = "ΔHR\n×\nHRP",
+                        hrp = "HRP",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+pretty_edges <- 
+                  # Format edges (to std)
+  get_edges(hr_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent"),
+                         !(lhs == "stai" & rhs == "hrp")
+                  )
+  
+
+# Create a layout
+layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "", "", "","", 
+                     "", "", "", "",  "", "","", 
+                     "", "", "meanhr:hrp", "", "meanhr", "","", 
+                     "", "", "", "",  "hrp", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 6)
+
+# Plotting SEM
+graph_sem(hr_path, 
+          edges = pretty_edges,
+          nodes = pretty_nodes,
+          layout = layout
+          )
+
+# semTable(hr_path, type = "html") %>% write_lines("docs/s4.html")
+```
+
+
+```{r}
+# Conceptual model
+
+hypotheses <-
+  tribble(~from, ~to, ~label,
+          "expectedhr", "stai", "H3",
+          "experiencedhr", "stai", "H3",
+          "meanhr", "stai", "H3",
+          "hrp", "stai", "H3",
+          "meanhr:hrp", "stai", "H2",
+          "expectedhr", "meanhr", "H4",
+          "meanhr", "experiencedhr", "H4",
+          "expectedhr", "experiencedhr", "H4"
+          )
+
+hr_conc <- sem(model = hr_model, data = path_df)
+
+conc_nodes <-
+  get_nodes(hr_conc, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected HR",
+                        experiencedhr = "Perceived HR",
+                        `meanhr:hrp` = "ΔHR\n×\nHRP",
+                        hrp = "HRP",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+conc_edges <- 
+  get_edges(hr_conc, label = "label") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent"),
+                         !(lhs == "stai" & rhs == "hrp")
+                  ) %>% 
+  left_join(hypotheses, by = c("from", "to"))
+  
+graph_sem(hr_conc, 
+          edges = conc_edges,
+          nodes = conc_nodes,
+          layout = layout
+          )
+
+```
+
