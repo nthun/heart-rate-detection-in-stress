@@ -6,7 +6,15 @@ output: html_document
 ---
 
 TODO: include moderation into the path model
-TODO: create power sensitivity analyis for pm
+TODO: create power sensitivity analysis for pm
+
+```{r}
+library(tidyverse)
+library(lavaan)
+library(tidySEM)
+library(semTable)
+```
+
 
 ```{r}
 # Prepare data
@@ -14,6 +22,9 @@ TODO: create power sensitivity analyis for pm
 path_df <-
    reactivity %>% 
    select(id, starts_with("meanhr_"),
+          starts_with("rmssd_"),
+          starts_with("hf.percent_"),
+          starts_with("eda.avg_"),
           stai_react_Handgrip,
           `stai_react_N-back`) %>% 
    # Put HR reactivity metrics expected and experienced change together
@@ -37,13 +48,8 @@ path_df <-
   force()
 ```
 
-
+# Path models for HR and HRP
 ```{r}
-# Create path models
-
-library(lavaan)
-library(tidySEM)
-library(semTable)
 
 hr_model <- 
   "stai ~ expectedhr + experiencedhr + meanhr + hrp + meanhr:hrp + task_order
@@ -103,9 +109,9 @@ graph_sem(hr_path,
 # semTable(hr_path, type = "html") %>% write_lines("docs/s4.html")
 ```
 
-
-```{r}
 # Conceptual model
+```{r}
+
 
 hypotheses <-
   tribble(~from, ~to, ~label,
@@ -126,10 +132,10 @@ conc_nodes <-
   mutate(label = recode(label,
                         expectedhr = "Expected HR",
                         experiencedhr = "Perceived HR",
-                        `meanhr:hrp` = "ΔHR\n×\nHRP",
-                        hrp = "HRP",
+                        `meanhr:hrp` = "ΔPhys\n×\nCA",
+                        hrp = "CA",
                         stai = "ΔSTAI",
-                        meanhr = "ΔHR")) %>% 
+                        meanhr = "ΔPhys")) %>% 
   # Remove confounders
   filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
 
@@ -152,3 +158,92 @@ graph_sem(hr_conc,
 
 ```
 
+# Model specifications for other physiological metrics
+## RMSSD
+```{r}
+rmssd_model <- 
+  "stai ~ expectedhr + experiencedhr + rmssd + hrp + rmssd:hrp + task_order
+   experiencedhr ~ expectedhr + rmssd + task_order
+   expectedhr ~ task_order
+   rmssd ~ expectedhr + hrp + task_order + sex + bodyfat_percent
+"
+
+# Fit model in lavaan
+rmssd_path <- sem(model = rmssd_model, data = path_df, group = "task")
+
+# Return results
+summary(rmssd_path, standardized = TRUE, fit.measures = TRUE)
+
+rmssd_nodes <-
+  get_nodes(rmssd_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected HR",
+                        experiencedhr = "Perceived HR",
+                        `meanhr:hrp` = "ΔRMSSD\n×\nHRP",
+                        hrp = "HRP",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔRMSSD")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+rmssd_edges <- 
+                  # Format edges (to std)
+  get_edges(rmssd_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent"),
+                         !(lhs == "stai" & rhs == "hrp")
+                  )
+
+# Create a layout
+layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "", "", "","", 
+                     "", "", "", "",  "", "","", 
+                     "", "", "rmssd:hrp", "", "rmssd", "","", 
+                     "", "", "", "",  "hrp", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 6)
+
+# Plotting SEM
+graph_sem(rmssd_path, 
+          edges = rmssd_edges,
+          nodes = rmssd_nodes,
+          layout = layout
+          )
+```
+
+## HF%
+```{r}
+hf.percent_model <- 
+  "stai ~ expectedhr + experiencedhr + hf.percent + hrp + hf.percent:hrp + task_order
+   experiencedhr ~ expectedhr + hf.percent + task_order
+   expectedhr ~ task_order
+   hf.percent ~ expectedhr + hrp + task_order + sex + bodyfat_percent
+"
+
+
+# Fit model in lavaan
+hf.percent_path <- sem(model = hf.percent_model, data = path_df, group = "task")
+
+# Return results
+summary(hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+```
+
+## EDA
+```{r}
+eda.avg_model <- 
+  "stai ~ expectedhr + experiencedhr + eda.avg + hrp + eda.avg:hrp + task_order
+   experiencedhr ~ expectedhr + eda.avg + task_order
+   expectedhr ~ task_order
+   eda.avg ~ expectedhr + hrp + task_order + sex + bodyfat_percent
+"
+
+
+# Fit model in lavaan
+eda.avg_path <- sem(model = eda.avg_model, data = path_df, group = "task")
+
+# Return results
+summary(eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+```
