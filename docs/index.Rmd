@@ -504,6 +504,8 @@ reactivity %>%
    facet_wrap(~name, scales = "free", nrow = 4) +
    labs(title = "Reactivity histograms of key metrics")
 
+# write_csv(reactivity, "data/processed/reactivity_clean.csv")
+
 ```
 
 ## Missing data analysis
@@ -520,7 +522,7 @@ phys_data %>%
 
 # Analysis of the effects of the tasks on physiological variables
 
-# Descriptive statistics
+## Descriptive statistics
 ```{r}
 
 phys_trans %>% 

@@ -52,7 +52,12 @@ path_df <-
 
 # Conceptual model
 ```{r}
-
+hr_model <- 
+  "stai ~ expectedhr + experiencedhr + meanhr + hrp + meanhr:hrp + task_order
+   experiencedhr ~ expectedhr + meanhr + task_order
+   expectedhr ~ task_order
+   meanhr ~ expectedhr + task_order + sex + bodyfat_percent
+"
 
 hypotheses <-
   tribble(~from, ~to, ~label,
@@ -147,7 +152,6 @@ pretty_edges <-
                   # Remove confounders
                          !str_detect(lhs, "task_order|sex|bodyfat_percent"),
                          !str_detect(rhs, "task_order|sex|bodyfat_percent")
-                         # !(lhs == "stai" & rhs == "hrp")
                   )
   
 
@@ -206,8 +210,7 @@ rmssd_edges <-
                   filter(op != "~~",
                   # Remove confounders
                          !str_detect(lhs, "task_order|sex|bodyfat_percent"),
-                         !str_detect(rhs, "task_order|sex|bodyfat_percent"),
-                         # !(lhs == "stai" & rhs == "hrp")
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
                   )
 
 # Create a layout
@@ -265,8 +268,7 @@ hf.percent_edges <-
                   filter(op != "~~",
                   # Remove confounders
                          !str_detect(lhs, "task_order|sex|bodyfat_percent"),
-                         !str_detect(rhs, "task_order|sex|bodyfat_percent"),
-                         # !(lhs == "stai" & rhs == "hrp")
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
                   )
 
 # Create a layout
@@ -326,8 +328,7 @@ eda.avg_edges <-
                   filter(op != "~~",
                   # Remove confounders
                          !str_detect(lhs, "task_order|sex|bodyfat_percent"),
-                         !str_detect(rhs, "task_order|sex|bodyfat_percent"),
-                         # !(lhs == "stai" & rhs == "hrp")
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
                   )
 
 # Create a layout
