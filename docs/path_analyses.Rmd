@@ -13,6 +13,7 @@ library(tidyverse)
 library(lavaan)
 library(tidySEM)
 library(semTable)
+library(parameters)
 ```
 
 
@@ -20,6 +21,7 @@ library(semTable)
 # Prepare data
 
 reactivity <- read_csv(here::here("data/processed/reactivity_clean.csv"))
+experiment <- read_csv(here::here("data/processed/survey_clean.csv"))
 
 path_df <-
    reactivity %>% 
@@ -31,14 +33,14 @@ path_df <-
           `stai_react_N-back`) %>% 
    # Put HR reactivity metrics expected and experienced change together
    left_join(select(experiment, 
-                    id, bodyfat_percent, sex, task_order, hrp,
+                    id, bodyfat_percent, sex, task_order, hrp, ca,
                     `expectedhr_change_Handgrip` = physical_expected_hr_change,
                     `experiencedhr_change_Handgrip` = physical_experienced_hr_change,
                     `expectedhr_change_N-back` = mental_expected_hr_change,
                     `experiencedhr_change_N-back` = mental_experienced_hr_change), 
              by = "id") %>%
    # Create a redundant dataset to run several regressions at once
-   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order", "hrp"),
+   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order", "hrp", "ca"),
                 names_to = c("metric","task"),
                 names_pattern = "^(.*)_.*_(.*)",
                 values_to = "value") %>%  
@@ -76,8 +78,8 @@ hr_conc <- sem(model = hr_model, data = path_df)
 conc_nodes <-
   get_nodes(hr_conc, label = "name") %>% 
   mutate(label = recode(label,
-                        expectedhr = "Expected HR",
-                        experiencedhr = "Perceived HR",
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
                         `meanhr:hrp` = "ΔPhys\n×\nCA",
                         hrp = "CA",
                         stai = "ΔSTAI",
@@ -113,7 +115,7 @@ graph_sem(hr_conc,
 
 ```
 
-# Model specifications for physiological metrics
+# HRP as cardioceptive metric
 ## HR
 ```{r}
 
@@ -125,18 +127,21 @@ hr_model <-
 "
 
 # Fit model in lavaan
-hr_path <- sem(model = hr_model, data = path_df, group = "task")
+hr_path <- sem(model = hr_model, 
+               data = path_df, 
+               group = "task")
 
 # Return results
 summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+parameters(hr_path, standardize = "std.all") %>% print_html() 
 
 # Plotting SEM
 # Format node labels
 pretty_nodes <-
   get_nodes(hr_path, label = "name") %>% 
   mutate(label = recode(label,
-                        expectedhr = "Expected HR",
-                        experiencedhr = "Perceived HR",
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
                         `meanhr:hrp` = "ΔHR\n×\nHRP",
                         hrp = "HRP",
                         stai = "ΔSTAI",
@@ -186,16 +191,21 @@ rmssd_model <-
 "
 
 # Fit model in lavaan
-rmssd_path <- sem(model = rmssd_model, data = path_df, group = "task")
+rmssd_path <-
+  sem(
+    model = rmssd_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(rmssd_path, standardized = TRUE, fit.measures = TRUE)
+parameters(rmssd_path, standardize = "std.all") %>% print_html()
 
 rmssd_nodes <-
   get_nodes(rmssd_path, label = "name") %>% 
   mutate(label = recode(label,
-                        expectedhr = "Expected HR",
-                        experiencedhr = "Perceived HR",
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
                         `rmssd:hrp` = "ΔRMSSD\n×\nHRP",
                         hrp = "HRP",
                         stai = "ΔSTAI",
@@ -243,17 +253,22 @@ hf.percent_model <-
 "
 
 # Fit model in lavaan
-hf.percent_path <- sem(model = hf.percent_model, data = path_df, group = "task")
+hf.percent_path <-
+  sem(
+    model = hf.percent_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+parameters(hf.percent_path, standardize = "std.all") %>% print_html()
 
 # Plot results
 hf.percent_nodes <-
   get_nodes(hf.percent_path, label = "name") %>% 
   mutate(label = recode(label,
-                        expectedhr = "Expected HR",
-                        experiencedhr = "Perceived HR",
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
                         `hf.percent:hrp` = "ΔHF%\n×\nHRP",
                         hrp = "HRP",
                         stai = "ΔSTAI",
@@ -303,17 +318,22 @@ eda.avg_model <-
 
 
 # Fit model in lavaan
-eda.avg_path <- sem(model = eda.avg_model, data = path_df, group = "task")
+eda.avg_path <-
+  sem(
+    model = eda.avg_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+parameters(eda.avg_path, standardize = "std.all") %>% print_html()
 
 # Plot results
 eda.avg_nodes <-
   get_nodes(eda.avg_path, label = "name") %>% 
   mutate(label = recode(label,
-                        expectedhr = "Expected HR",
-                        experiencedhr = "Perceived HR",
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
                         `eda.avg:hrp` = "ΔEDA\n×\nHRP",
                         hrp = "HRP",
                         stai = "ΔSTAI",
@@ -360,4 +380,295 @@ hr_plot + eda.avg_plot + rmssd_plot + hf.percent_plot +
 
 ```
 
+# HBP as cardioceptive metric
+## HR
+```{r}
+
+ca_hr_model <- 
+  "stai ~ expectedhr + experiencedhr + meanhr + ca + meanhr:ca + task_order
+   experiencedhr ~ expectedhr + meanhr + task_order
+   expectedhr ~ task_order
+   meanhr ~ expectedhr + task_order + sex + bodyfat_percent
+"
+
+# Fit model in lavaan
+ca_hr_path <-
+  sem(
+    model = ca_hr_model,
+    data = path_df,
+    group = "task")
+
+# Return results
+summary(ca_hr_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_hr_path, standardize = "std.all") %>% print_html()
+
+# Plotting SEM
+# Format node labels
+ca_pretty_nodes <-
+  get_nodes(ca_hr_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
+                        `meanhr:ca` = "ΔHR\n×\nHBP",
+                        ca = "HBP",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+ca_pretty_edges <- 
+                  # Format edges (to std)
+  get_edges(ca_hr_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
+  
+
+# Create a layout
+ca_layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "", "", "","", 
+                     "", "", "", "",  "", "","", 
+                     "", "", "meanhr:ca", "", "meanhr", "","", 
+                     "", "", "", "ca",  "", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 6)
+
+# Plotting SEM
+ca_hr_plot <- 
+  graph_sem(hr_path, 
+            edges = ca_pretty_edges,
+            nodes = ca_pretty_nodes,
+            layout = ca_layout
+            ) + ggtitle("HR")
+
+ca_hr_plot
+# semTable(hr_path, type = "html") %>% write_lines("docs/s4.html")
+```
+
+## RMSSD
+```{r}
+ca_rmssd_model <- 
+  "stai ~ expectedhr + experiencedhr + rmssd + ca + rmssd:ca + task_order
+   experiencedhr ~ expectedhr + rmssd + task_order
+   expectedhr ~ task_order
+   rmssd ~ expectedhr + task_order + sex + bodyfat_percent
+"
+
+# Fit model in lavaan
+ca_rmssd_path <-
+  sem(
+    model = ca_rmssd_model,
+    data = path_df,
+    group = "task")
+
+# Return results
+summary(ca_rmssd_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_rmssd_path, standardize = "std.all") %>% print_html()
+
+ca_rmssd_nodes <-
+  get_nodes(ca_rmssd_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
+                        `rmssd:ca` = "ΔRMSSD\n×\nHBP",
+                        ca = "HBP",
+                        stai = "ΔSTAI",
+                        rmssd = "ΔRMSSD")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+ca_rmssd_edges <- 
+                  # Format edges (to std)
+  get_edges(ca_rmssd_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
+
+# Create a layout
+ca_layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "", "", "","", 
+                     "", "", "", "",  "", "","", 
+                     "", "", "rmssd:ca", "", "rmssd", "","", 
+                     "", "", "", "ca",  "", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 6)
+
+# Plotting SEM
+ca_rmssd_plot <- 
+  graph_sem(ca_rmssd_path, 
+          edges = ca_rmssd_edges,
+          nodes = ca_rmssd_nodes,
+          layout = ca_layout
+          ) + ggtitle("RMSSD")
+
+ca_rmssd_plot
+```
+
+## HF%
+```{r}
+ca_hf.percent_model <- 
+  "stai ~ expectedhr + experiencedhr + hf.percent + ca + hf.percent:ca + task_order
+   experiencedhr ~ expectedhr + hf.percent + task_order
+   expectedhr ~ task_order
+   hf.percent ~ expectedhr + task_order + sex + bodyfat_percent
+"
+
+# Fit model in lavaan
+ca_hf.percent_path <-
+  sem(
+    model = ca_hf.percent_model,
+    data = path_df,
+    group = "task")
+
+# Return results
+summary(ca_hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_hf.percent_path, standardize = "std.all") %>% print_html()
+
+# Plot results
+ca_hf.percent_nodes <-
+  get_nodes(ca_hf.percent_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
+                        `hf.percent:ca` = "ΔHF%\n×\nHBP",
+                        ca = "HBP",
+                        stai = "ΔSTAI",
+                        hf.percent = "ΔHF%")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+ca_hf.percent_edges <- 
+                  # Format edges (to std)
+  get_edges(ca_hf.percent_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
+
+# Create a layout
+ca_layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "", "", "","", 
+                     "", "", "", "",  "", "","", 
+                     "", "", "hf.percent:ca", "", "hf.percent", "","", 
+                     "", "", "", "ca",  "", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 6)
+
+# Plotting SEM
+ca_hf.percent_plot <- 
+  graph_sem(ca_hf.percent_path, 
+          edges = ca_hf.percent_edges,
+          nodes = ca_hf.percent_nodes,
+          layout = ca_layout
+          ) + ggtitle("HF%")
+
+ca_hf.percent_plot
+
+```
+
+## EDA
+```{r}
+ca_eda.avg_model <- 
+  "stai ~ expectedhr + experiencedhr + eda.avg + ca + eda.avg:ca + task_order
+   experiencedhr ~ expectedhr + eda.avg + task_order
+   expectedhr ~ task_order
+   eda.avg ~ expectedhr + task_order + sex + bodyfat_percent
+"
+
+
+# Fit model in lavaan
+ca_eda.avg_path <-
+  sem(
+    model = ca_eda.avg_model,
+    data = path_df,
+    group = "task")
+
+# Return results
+summary(ca_eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_eda.avg_path, standardize = "std.all") %>% print_html()
+
+# Plot results
+ca_eda.avg_nodes <-
+  get_nodes(ca_eda.avg_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
+                        `eda.avg:ca` = "ΔEDA\n×\nHBP",
+                        ca = "HBP",
+                        stai = "ΔSTAI",
+                        eda.avg = "ΔEDA")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+ca_eda.avg_edges <- 
+                  # Format edges (to std)
+  get_edges(ca_eda.avg_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
+
+# Create a layout
+ca_layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "", "", "","", 
+                     "", "", "", "",  "", "","", 
+                     "", "", "eda.avg:ca", "", "eda.avg", "","", 
+                     "", "", "", "ca",  "", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 6)
+
+# Plotting SEM
+ca_eda.avg_plot <- 
+  graph_sem(ca_eda.avg_path, 
+          edges = ca_eda.avg_edges,
+          nodes = ca_eda.avg_nodes,
+          layout = ca_layout
+          ) + ggtitle("EDA")
+
+ca_eda.avg_plot
+
+```
+
+# Patchwork plots
+```{r}
+library(patchwork)
+
+hr_plot + eda.avg_plot + rmssd_plot + hf.percent_plot +
+  plot_layout(nrow = 2) +
+  plot_annotation(title = "Heart rate perception as moderator")
+
+ca_hr_plot + ca_eda.avg_plot + ca_rmssd_plot + ca_hf.percent_plot +
+  plot_layout(nrow = 2) +
+  plot_annotation(title = "Heart beat perception as moderator")
+
+```
+
+## HBP and HRP of HR measures
+```{r}
+ca_hr_plot +  ggtitle("B) Heart beat perception as moderator") +
+hr_plot + ggtitle("A) Heart rate perception as moderator") +
+plot_layout(nrow = 2)
+```
+
+## HRP and EDA 
+
+```{r}
+eda.avg_plot + ggtitle(label = NULL)
+```
+
+## HBP and RMSSD 
+
+```{r}
+ca_rmssd_plot + ggtitle(label = NULL)
+```
 
