@@ -32,6 +32,7 @@ library(correlation)
 library(naniar)
 library(patchwork)
 library(skimr)
+library(ggsignif)
 
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
                       fig.width = 9, fig.height = 6)
@@ -63,13 +64,13 @@ cardioceptive_names <-
 
 phys_metrics <- 
   tribble(~name, ~metric,
-         "meanhr", "Mean HR",
-         "lg_hf_percent", "HF% (log)",
-         "lg_rmssd", "RMSSD (log)",
-         "lg_eda_avg", "Mean EDA (log)",
-         "hf.percent", "HF%",
-         "rmssd", "RMSSD",
-         "eda.avg", "Mean EDA") %>% 
+         "meanhr", "Mean HR (bpm)",
+         "lg_hf_percent", "HF% (log %)",
+         "lg_rmssd", "RMSSD (log ms)",
+         "lg_eda_avg", "Mean EDA (log uS)",
+         "hf.percent", "HF% (%)",
+         "rmssd", "RMSSD (ms)",
+         "eda.avg", "Mean EDA (uS)") %>% 
   mutate(metric = fct_inorder(metric))
 
 skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
@@ -146,6 +147,12 @@ cardio <-
                                 labels = c("Low HRP",
                                            "Medium HRP",
                                            "High HRP"),
+                                ordered_result = TRUE),
+             hbp_group = cut_number(ca, 
+                                n = 3, 
+                                labels = c("Low HBP",
+                                           "Medium HBP",
+                                           "High HBP"),
                                 ordered_result = TRUE)
 )
 
@@ -585,28 +592,53 @@ phys_trans %>%
 
 ## Visualize phys changes
 ```{r}
+# Create table for allotation
+annotation_df <- 
+  phys_trans %>% 
+  dplyr::select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+  pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
+  left_join(phys_metrics, by = "name") %>% 
+  group_by(metric) %>%
+  nest() %>% 
+  summarise(model = map(data, ~lmer(value ~ marker + (1|id), data = .x) %>% 
+                               broom.mixed::tidy())) %>% 
+  unnest(model) %>% 
+  filter(effect == "fixed", term != "(Intercept)") %>% 
+  mutate(term = str_remove(term, "marker")) %>% 
+  transmute(metric, 
+            start = "Baseline",
+            end = term, 
+            marker = end,
+            label = paste0("p=",scales::pvalue(p.value)) %>% 
+                    str_replace("=<", "<"),
+            y = c(81.7, 82.4, 3.17, 3.21, 3.64, 3.665, 2.12, 2.16)) %>% 
+  group_by(metric) %>% 
+  mutate(top = max(y) * 1.015) %>% 
+  ungroup()
 
+
+# Plot physiological changes with significance
 phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
-   pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
-   left_join(phys_metrics, by = "name") %>% 
-   group_by(metric, marker) %>% 
-   summarise(avg_value = mean(value),
-             se_value = sd(value)/sqrt(n()), 
-             .groups = "drop") %>% 
-   ggplot() +
-   aes(x = marker, y = avg_value, group = metric,
-       ymin = avg_value - se_value, ymax = avg_value + se_value) +
-   geom_errorbar(width = .2, alpha = .5) +
-   geom_point(aes(color = metric), show.legend = FALSE) +
-   geom_line(aes(color = metric), 
-             size = 1.2, alpha = .6, 
-             show.legend = FALSE) +
-   facet_wrap(~metric, scales = "free_y") +
-   labs(y = "Mean value (SEM)",
-        x = NULL) +
-   theme(panel.grid = element_blank())
+  dplyr::select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+  pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
+  left_join(phys_metrics, by = "name") %>% 
+  ggplot() +
+  aes(x = marker, y = value, group = metric, color = metric) +
+  stat_summary(fun.data = "mean_se", show.legend = FALSE, 
+               geom = "errorbar", color = "gray", width = .2) +
+  stat_summary(fun.data = "mean_se", geom = "point", show.legend = FALSE) +
+  stat_summary(fun.data = "mean_se", show.legend = FALSE, geom = "line", 
+               size = 1.2, alpha = .6) +
+  facet_wrap(~metric, scales = "free_y") +
+  labs(y = "Mean value (SEM)",
+       x = NULL) +
+  theme(panel.grid = element_blank()) +
+  geom_blank(data = annotation_df, aes(y = top)) +
+  geom_signif(inherit.aes = FALSE, 
+              data = annotation_df, manual = TRUE, 
+              aes(xmin = start, xmax = end, annotations = label, y_position = y),
+              color = "black", alpha = .6,
+              textsize = 3, tip_length = .002, margin_top = 12, vjust = -.1)
 ```
 
 ## Change  stats in %
