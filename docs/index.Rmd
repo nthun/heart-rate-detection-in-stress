@@ -592,10 +592,10 @@ phys_trans %>%
 
 ## Visualize phys changes
 ```{r}
-# Create table for allotation
+# Create table for annotation
 annotation_df <- 
   phys_trans %>% 
-  dplyr::select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+  select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
   pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
   left_join(phys_metrics, by = "name") %>% 
   group_by(metric) %>%
@@ -619,7 +619,7 @@ annotation_df <-
 
 # Plot physiological changes with significance
 phys_trans %>% 
-  dplyr::select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+  select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
   pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
   left_join(phys_metrics, by = "name") %>% 
   ggplot() +
@@ -1067,14 +1067,33 @@ hypo2 %>%
 ### Figure: CA/HRP moderates the association of objective and subjective change metrics
 
 ```{r}
-reactivity %>% 
+interaction_df <- 
+  reactivity %>% 
   select(id, `meanhr_react_N-back`, meanhr_react_Handgrip,
-        `stai_react_N-back`, stai_react_Handgrip) %>%
-  left_join(select(experiment, id, ca, hrp, hrp_group), by = "id") %>%
+         `stai_react_N-back`, stai_react_Handgrip) %>%
+  left_join(select(experiment, id, ca, hrp, hrp_group, hbp_group), by = "id") %>%
   pivot_longer(`meanhr_react_N-back`:stai_react_Handgrip,
-                names_to = c("name", "task"),
-                names_pattern = "(.*_react)_(.*)") %>% 
-  pivot_wider(names_from = "name", values_from = "value") %>% 
+               names_to = c("name", "task"),
+               names_pattern = "(.*_react)_(.*)") %>% 
+  pivot_wider(names_from = "name", values_from = "value")
+
+hbp_plot <- 
+  interaction_df %>% 
+  ggplot() +
+  aes(y = stai_react, x = meanhr_react, color = hbp_group) +
+  geom_hline(yintercept = 0, lty = "dashed", alpha = .2) +
+  geom_vline(xintercept = 0, lty = "dashed", alpha = .2) +
+  geom_point(alpha = .5) +
+  geom_smooth(method = "lm", se = FALSE, alpha = .7) +
+  scale_color_brewer(palette = "Reds") +
+  facet_wrap(~task, scales = "free_x") +
+  labs(color = "HBP group",
+       x = NULL,
+       y = "STAI change") +
+  theme(legend.position = c(0.93, 0.22), panel.grid = element_blank())
+
+hrp_plot <-
+  interaction_df %>% 
   ggplot() +
   aes(y = stai_react, x = meanhr_react, color = hrp_group) +
   geom_hline(yintercept = 0, lty = "dashed", alpha = .2) +
@@ -1086,7 +1105,9 @@ reactivity %>%
   labs(color = "HRP group",
        x = "HR change",
        y = "STAI change") +
-  theme(legend.position = "bottom", panel.grid = element_blank())
+  theme(legend.position = c(0.93, 0.22), panel.grid = element_blank())
+
+hbp_plot + hrp_plot + plot_layout(nrow = 2)
   
 ```
 
