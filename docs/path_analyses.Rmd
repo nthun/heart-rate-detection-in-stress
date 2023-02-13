@@ -13,6 +13,7 @@ library(tidyverse)
 library(lavaan)
 library(tidySEM)
 library(semTable)
+library(parameters)
 ```
 
 
@@ -126,10 +127,13 @@ hr_model <-
 "
 
 # Fit model in lavaan
-hr_path <- sem(model = hr_model, data = path_df, group = "task")
+hr_path <- sem(model = hr_model, 
+               data = path_df, 
+               group = "task")
 
 # Return results
 summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+parameters(hr_path, standardize = "std.all") %>% print_html() 
 
 # Plotting SEM
 # Format node labels
@@ -187,10 +191,15 @@ rmssd_model <-
 "
 
 # Fit model in lavaan
-rmssd_path <- sem(model = rmssd_model, data = path_df, group = "task")
+rmssd_path <-
+  sem(
+    model = rmssd_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(rmssd_path, standardized = TRUE, fit.measures = TRUE)
+parameters(rmssd_path, standardize = "std.all") %>% print_html()
 
 rmssd_nodes <-
   get_nodes(rmssd_path, label = "name") %>% 
@@ -244,10 +253,15 @@ hf.percent_model <-
 "
 
 # Fit model in lavaan
-hf.percent_path <- sem(model = hf.percent_model, data = path_df, group = "task")
+hf.percent_path <-
+  sem(
+    model = hf.percent_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+parameters(hf.percent_path, standardize = "std.all") %>% print_html()
 
 # Plot results
 hf.percent_nodes <-
@@ -304,10 +318,15 @@ eda.avg_model <-
 
 
 # Fit model in lavaan
-eda.avg_path <- sem(model = eda.avg_model, data = path_df, group = "task")
+eda.avg_path <-
+  sem(
+    model = eda.avg_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+parameters(eda.avg_path, standardize = "std.all") %>% print_html()
 
 # Plot results
 eda.avg_nodes <-
@@ -373,10 +392,17 @@ ca_hr_model <-
 "
 
 # Fit model in lavaan
-ca_hr_path <- sem(model = ca_hr_model, data = path_df, group = "task")
+
+ca_hr_path <-
+  sem(
+    model = ca_hr_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(ca_hr_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_hr_path, standardize = "std.all") %>% print_html()
+
 
 # Plotting SEM
 # Format node labels
@@ -434,10 +460,15 @@ ca_rmssd_model <-
 "
 
 # Fit model in lavaan
-ca_rmssd_path <- sem(model = ca_rmssd_model, data = path_df, group = "task")
+ca_rmssd_path <-
+  sem(
+    model = ca_rmssd_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(ca_rmssd_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_rmssd_path, standardize = "std.all") %>% print_html()
 
 ca_rmssd_nodes <-
   get_nodes(ca_rmssd_path, label = "name") %>% 
@@ -491,10 +522,15 @@ ca_hf.percent_model <-
 "
 
 # Fit model in lavaan
-ca_hf.percent_path <- sem(model = ca_hf.percent_model, data = path_df, group = "task")
+ca_hf.percent_path <-
+  sem(
+    model = ca_hf.percent_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(ca_hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_hf.percent_path, standardize = "std.all") %>% print_html()
 
 # Plot results
 ca_hf.percent_nodes <-
@@ -551,10 +587,15 @@ ca_eda.avg_model <-
 
 
 # Fit model in lavaan
-ca_eda.avg_path <- sem(model = ca_eda.avg_model, data = path_df, group = "task")
+ca_eda.avg_path <-
+  sem(
+    model = ca_eda.avg_model,
+    data = path_df,
+    group = "task")
 
 # Return results
 summary(ca_eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+parameters(ca_eda.avg_path, standardize = "std.all") %>% print_html()
 
 # Plot results
 ca_eda.avg_nodes <-
