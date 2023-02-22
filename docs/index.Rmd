@@ -95,7 +95,7 @@ react_vars <-
 ```
 
 
-```{css}
+```{css, eval = FALSE}
 .main-container {
     max-width: 100%;
 }
