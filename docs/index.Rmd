@@ -1158,28 +1158,24 @@ hypo3 <-
                   as.numeric())) %>%    
    nest() %>% 
    mutate(`N-back_stai_react_ca` = map(data, 
-                                     ~lm(`stai_react_N-back` ~ ca * 
+                                     ~lm(`stai_react_N-back` ~ ca * value +
                                          mental_expected_stress + 
-                                         task_order +
-                                         value,
+                                         task_order,
                                          data = .x)),
           Handgrip_stai_react_ca = map(data, 
-                                     ~lm(stai_react_Handgrip ~ ca * 
+                                     ~lm(stai_react_Handgrip ~ ca * value +
                                          physical_expected_stress + 
-                                         task_order + 
-                                         value,
+                                         task_order,
                                          data = .x)),
           `N-back_stai_react_hrp` = map(data, 
-                                     ~lm(`stai_react_N-back` ~ hrp * 
+                                     ~lm(`stai_react_N-back` ~ hrp * value +
                                          mental_expected_stress + 
-                                         task_order +
-                                         value,
+                                         task_order,
                                          data = .x)),
           Handgrip_stai_react_hrp = map(data, 
-                                     ~lm(stai_react_Handgrip ~ hrp * 
+                                     ~lm(stai_react_Handgrip ~ hrp * value + 
                                          physical_expected_stress + 
-                                         task_order + 
-                                         value,
+                                         task_order,
                                          data = .x))) %>% 
    pivot_longer(`N-back_stai_react_ca`:Handgrip_stai_react_hrp) %>% 
    filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
