@@ -1131,11 +1131,12 @@ hypo2 %>%
 ## H3
 Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, ΔEDAmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, ΔEDAphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
 
-We fitted linear regressions for each task (N-back and physical) separately. We investigated if physiological changes, cardioceptive accuracy, or expected HR change predicted STAI-S change in the respective tasks. We used task order as a covariate. 
+We fitted linear regressions for each task (N-back and physical) separately. We investigated if physiological changes, cardioceptive accuracy (HBP), or expected stress predicted STAI-S change in the respective tasks. We used task order as a covariate. 
 
-We found no associations between cardioceptive accuracy and STAI-S change.
-Expected HR change did predict STAI-S change in all N-back tasks.
-From the physiological measures, only RMSSD predicted STAI-S change.
+- We found no associations between cardioceptive accuracy and STAI-S change.
+- Expected stress predicted STAI-S change in the N-back task (but not the Handgrip task)
+- From the physiological measures, only RMSSD predicted STAI-S change (in the N-back task).
+- The interaction of HBP/HRP and physiological change did not significantly predict STAI change.
 
 ```{r}
 hypo3 <-
@@ -1192,7 +1193,7 @@ hypo3 %>%
    mutate(metric = str_match(model, ".*_(.*)_.*$")[,2],
           term = str_replace(term, "value", metric)) %>% 
    select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
-   mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
+   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
    gt() %>% 
    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
    fmt_number(c("statistic", "p.value"), decimals = 3) %>%
