@@ -13,6 +13,8 @@ editor_options:
 ---
 
 ```{r, echo = TRUE, eval = FALSE, include = FALSE}
+# TODO: Separate data processing and analysis
+
 install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "naniar", "skmir", "lavaan", "tidySEM", "ggExtra"))
 ```
 
