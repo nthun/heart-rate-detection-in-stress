@@ -1138,7 +1138,7 @@ We fitted linear regressions for each task (N-back and physical) separately. We 
 - We found no associations between cardioceptive accuracy and STAI-S change.
 - Expected stress predicted STAI-S change in the N-back task (but not the Handgrip task)
 - From the physiological measures, only RMSSD predicted STAI-S change (in the N-back task).
-- The interaction of HBP/HRP and physiological change did not significantly predict STAI change.
+
 
 ```{r}
 hypo3 <-
@@ -1161,22 +1161,22 @@ hypo3 <-
                   as.numeric())) %>%    
    nest() %>% 
    mutate(`N-back_stai_react_ca` = map(data, 
-                                     ~lm(`stai_react_N-back` ~ ca * value +
+                                     ~lm(`stai_react_N-back` ~ ca + value +
                                          mental_expected_stress + 
                                          task_order,
                                          data = .x)),
           Handgrip_stai_react_ca = map(data, 
-                                     ~lm(stai_react_Handgrip ~ ca * value +
+                                     ~lm(stai_react_Handgrip ~ ca + value +
                                          physical_expected_stress + 
                                          task_order,
                                          data = .x)),
           `N-back_stai_react_hrp` = map(data, 
-                                     ~lm(`stai_react_N-back` ~ hrp * value +
+                                     ~lm(`stai_react_N-back` ~ hrp + value +
                                          mental_expected_stress + 
                                          task_order,
                                          data = .x)),
           Handgrip_stai_react_hrp = map(data, 
-                                     ~lm(stai_react_Handgrip ~ hrp * value + 
+                                     ~lm(stai_react_Handgrip ~ hrp + value + 
                                          physical_expected_stress + 
                                          task_order,
                                          data = .x))) %>% 
@@ -1187,14 +1187,18 @@ hypo3 <-
    mutate(name = str_replace(name, "react", metric)) %>% 
    ungroup()
    
-hypo3 %>% 
+hypo3_sum <- 
+   hypo3 %>% 
    pull(value) %>% 
    set_names(hypo3$name) %>% 
    map_dfr(tidy, conf.int = TRUE, .id = "model") %>% 
    group_by(model) %>% 
    mutate(metric = str_match(model, ".*_(.*)_.*$")[,2],
           term = str_replace(term, "value", metric)) %>% 
-   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
+   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) 
+
+
+hypo3_sum %>% 
    # mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
    gt() %>% 
    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
@@ -1209,6 +1213,45 @@ hypo3 %>%
 
 
 ```
+
+## All significant associations
+```{r}
+hypo3_sum %>% 
+  ungroup() %>% 
+  # mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
+  filter(p.value < .05) %>%
+  arrange(model, term) %>% 
+     gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   )   
+```
+
+```{r}
+# hypo3_sum %>% 
+#   ungroup() %>% 
+#   mutate(model = str_remove(model, "stai_"),
+#          term = str_remove(term, "mental_|physical_")) %>% 
+#   separate(model, sep = "_", into = c("task", "name", "cardiocept")) %>% 
+#    gt() %>% 
+#    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+#    fmt_number(c("statistic", "p.value"), decimals = 3) %>%
+#    tab_options(column_labels.font.weight = "bold",
+#                column_labels.background.color = "lightgrey",
+#                row_group.background.color = "lightgrey", 
+#                row_group.font.weight = "bold", 
+#                row.striping.include_table_body = TRUE,
+#                row.striping.background_color = "#EEEEEE")
+
+
+```
+
 
 ## H4 
 Perceived HR in both conditions [mental_experienced_HR_change; physical_experienced_HR_change] is predicted by actual change [ΔHRmental, ΔHRphysical] and HR-related expectations [mental_expected_HR_change; physical_expected_HR_change] in both conditions
