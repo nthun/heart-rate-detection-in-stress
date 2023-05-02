@@ -1206,9 +1206,11 @@ Perceived stress in both conditions [mental_experienced_stress; physical_experie
 
 We fitted linear regressions for each task (N-back and physical) separately. We investigated if physiological changes, cardioceptive accuracy (HBP), or expected stress predicted STAI-S change in the respective tasks. We used task order as a covariate. 
 
-- We found no associations between cardioceptive accuracy and STAI-S change.
-- Expected stress predicted STAI-S change in the N-back task (but not the Handgrip task)
+- HRP was negatively associated with STAI-S change (in the Handgrip task).
+- Expected stress predicted STAI-S change in the N-back task (but not the Handgrip task).
 - From the physiological measures, only RMSSD predicted STAI-S change (in the N-back task).
+- The interaction of HRP and mean HR negatively predicted STAI-S change (in the Handgrip task).
+- The interaction of HRP and mean HF% negatively predicted STAI-S change (in the N-back task).
 
 
 ```{r}
@@ -1285,7 +1287,7 @@ hypo3_sum %>%
 
 ```
 
-## All significant associations
+### All significant associations
 ```{r}
 hypo3_sum %>% 
   ungroup() %>% 
