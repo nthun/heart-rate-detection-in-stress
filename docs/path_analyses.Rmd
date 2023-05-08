@@ -133,6 +133,8 @@ hr_path <- sem(model = hr_model,
 
 # Return results
 summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(hr_path) %>% 
+  write_csv(file = here::here("docs/path_models/hrp_hr.csv"))
 parameters(hr_path, standardize = "std.all") %>% print_html() 
 
 # Plotting SEM
@@ -199,6 +201,10 @@ rmssd_path <-
 
 # Return results
 summary(rmssd_path, standardized = TRUE, fit.measures = TRUE)
+
+parameterEstimates(rmssd_path) %>% 
+  write_csv(file = here::here("docs/path_models/hrp_rmssd.csv"))
+
 parameters(rmssd_path, standardize = "std.all") %>% print_html()
 
 rmssd_nodes <-
@@ -261,6 +267,8 @@ hf.percent_path <-
 
 # Return results
 summary(hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(hf.percent_path) %>% 
+  write_csv(file = here::here("docs/path_models/hrp_hf.percent.csv"))
 parameters(hf.percent_path, standardize = "std.all") %>% print_html()
 
 # Plot results
@@ -326,6 +334,8 @@ eda.avg_path <-
 
 # Return results
 summary(eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(eda.avg_path) %>% 
+  write_csv(file = here::here("docs/path_models/hrp_eda.avg.csv"))
 parameters(eda.avg_path, standardize = "std.all") %>% print_html()
 
 # Plot results
@@ -401,6 +411,8 @@ ca_hr_path <-
 
 # Return results
 summary(ca_hr_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(ca_hr_path) %>% 
+  write_csv(file = here::here("docs/path_models/hbp_hr.csv"))
 parameters(ca_hr_path, standardize = "std.all") %>% print_html()
 
 
@@ -468,6 +480,8 @@ ca_rmssd_path <-
 
 # Return results
 summary(ca_rmssd_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(ca_rmssd_path) %>% 
+  write_csv(file = here::here("docs/path_models/hbp_rmssd.csv"))
 parameters(ca_rmssd_path, standardize = "std.all") %>% print_html()
 
 ca_rmssd_nodes <-
@@ -530,6 +544,8 @@ ca_hf.percent_path <-
 
 # Return results
 summary(ca_hf.percent_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(ca_hf.percent_path) %>% 
+  write_csv(file = here::here("docs/path_models/hbp_hf.percent.csv"))
 parameters(ca_hf.percent_path, standardize = "std.all") %>% print_html()
 
 # Plot results
@@ -595,6 +611,8 @@ ca_eda.avg_path <-
 
 # Return results
 summary(ca_eda.avg_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(ca_eda.avg_path) %>% 
+  write_csv(file = here::here("docs/path_models/hbp_ca_eda.avg.csv"))
 parameters(ca_eda.avg_path, standardize = "std.all") %>% print_html()
 
 # Plot results
@@ -674,3 +692,127 @@ eda.avg_plot + ggtitle(label = NULL)
 ca_rmssd_plot + ggtitle(label = NULL)
 ```
 
+# Simplyfy H3
+
+```{r}
+hr_model <- 
+  "
+   meanhr ~ expectedhr + task_order + sex + bodyfat_percent
+   experiencedhr ~ expectedhr + meanhr + task_order
+   expectedhr ~ task_order
+  "
+
+# Fit model in lavaan
+hr_path <- sem(model = hr_model, 
+               data = path_df, 
+               group = "task")
+
+# Return results
+summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(hr_path) %>% 
+  write_csv(file = here::here("docs/path_models/hrp_hr_h3.csv"))
+parameters(hr_path, standardize = "std.all") %>% print_html() 
+
+# Plotting SEM
+# Format node labels
+pretty_nodes <-
+  get_nodes(hr_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
+                        hrp = "HRP",
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+pretty_edges <- 
+                  # Format edges (to std)
+  get_edges(hr_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
+  
+
+# Create a layout
+layout <- get_layout("", "meanhr", "",
+                     "expectedhr", "", "experiencedhr",
+                     rows = 2)
+
+# Plotting SEM
+hr_plot <- 
+  graph_sem(hr_path, 
+            edges = pretty_edges,
+            nodes = pretty_nodes,
+            layout = layout
+            )
+
+hr_plot
+```
+
+# Simplify H3 2
+
+```{r}
+
+hr_model <- 
+  "stai ~ expectedhr + experiencedhr + meanhr + task_order
+   experiencedhr ~ expectedhr + meanhr + task_order
+   expectedhr ~ task_order
+   meanhr ~ expectedhr + task_order + sex + bodyfat_percent
+"
+
+# Fit model in lavaan
+hr_path <- sem(model = hr_model, 
+               data = path_df, 
+               group = "task")
+
+# Return results
+summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+parameterEstimates(hr_path) %>% 
+  write_csv(file = here::here("docs/path_models/hrp_hr.csv"))
+parameters(hr_path, standardize = "std.all") %>% print_html() 
+
+# Plotting SEM
+# Format node labels
+pretty_nodes <-
+  get_nodes(hr_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        # `meanhr:hrp` = "ΔHR\n×\nHRP",
+                        experiencedhr = "Perceived\nHR",
+                        # hrp = "HRP",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
+
+pretty_edges <- 
+                  # Format edges (to std)
+  get_edges(hr_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
+  
+
+# Create a layout
+layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "meanhr", "", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 3)
+
+# Plotting SEM
+hr_plot <- 
+  graph_sem(hr_path, 
+            edges = pretty_edges,
+            nodes = pretty_nodes,
+            layout = layout
+            )
+
+hr_plot
+# semTable(hr_path, type = "html") %>% write_lines("docs/s4.html")
+```
