@@ -4,7 +4,7 @@
 # Physiology significance
 library(ggsignif)
 
-# Create table for allotation
+# Create table for annotation
 annotation_df <- 
   phys_trans %>% 
   dplyr::select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
@@ -134,10 +134,10 @@ hypo3_sum %>%
 hypo3_sum %>% 
   separate(model, into = c("task", NA, "name", "ca"), sep = "_") %>%
   left_join(phys_metrics, by = "name") %>% 
-  filter(!term %in% c("(Intercept)", "ca", "hrp", "task_orderPhysical first")) %>% 
+  filter(!term %in% c("(Intercept)", "ca", "hrp", "task_orderPhysical first", "sexMale","bodyfat_percent")) %>% 
   mutate(term = str_remove(term, "mental_|physical_") %>% 
-                recode(meanhr = "phys_change", hf.percent = "phys_change", 
-                       rmssd = "phys_change", eda.avg = "phys_change"),
+                str_replace("hrp", "ca") %>% 
+                str_replace("meanhr|hf.percent|rmssd|eda.avg", "phys_change"),
          sig = case_when(p.value <= .001 ~ "***",
                          p.value <= .01 ~ "**",
                          p.value <= .05 ~ "*",
@@ -151,9 +151,8 @@ hypo3_sum %>%
   gt(rowname_col = "ca",
      groupname_col = "task") %>% 
   cols_align(columns = metric, align = "left") %>% 
-  fmt_number(columns = c(estimate_phys_change, estimate_expected_stress), decimals = 2) %>% 
-  data_color(columns = c(estimate_phys_change, estimate_expected_stress), 
-             palette = c("blue", "white", "red")) %>% 
+  fmt_number(columns = c(estimate_phys_change, estimate_expected_stress, `estimate_ca:phys_change`), decimals = 2) %>% 
   cols_merge(columns = c(estimate_phys_change, sig_phys_change)) %>% 
-  cols_merge(columns = c(estimate_expected_stress, sig_expected_stress))
+  cols_merge(columns = c(estimate_expected_stress, sig_expected_stress)) %>% 
+  cols_merge(columns = c(`estimate_ca:phys_change`, `sig_ca:phys_change`))
   
