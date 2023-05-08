@@ -126,7 +126,7 @@ hypo3_sum %>%
   geom_tile(show.legend = FALSE) +
   scale_fill_gradient2() +
   geom_text() +
-  facet_wrap(~interaction(task, ca), ncol = 1, scales = "free") +
+  facet_wrap(~interaction(task, ca), ncol = 1, scales = "free_y") +
   labs(y = NULL, x = NULL)
 
 # gt
@@ -152,8 +152,9 @@ hypo3_sum %>%
      groupname_col = "task") %>% 
   cols_align(columns = metric, align = "left") %>% 
   fmt_number(columns = c(estimate_phys_change, estimate_expected_stress), decimals = 2) %>% 
-  data_color(columns = c(estimate_phys_change, estimate_expected_stress), 
-             palette = c("blue", "white", "red")) %>% 
+  data_color(columns = c(estimate_phys_change, estimate_expected_stress),
+             colors = scales::col_numeric(palette = c("blue", "white", "red"),
+                                          domain = c(-1, 1))) %>% 
   cols_merge(columns = c(estimate_phys_change, sig_phys_change)) %>% 
   cols_merge(columns = c(estimate_expected_stress, sig_expected_stress))
   
