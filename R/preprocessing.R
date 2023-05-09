@@ -4,7 +4,6 @@
 # install.packages(c("tidyverse", "here", "naniar", "skmir", "janitor", "gt))
 
 # Project setup 
-
 library(tidyverse)
 library(googlesheets4)
 library(stringi)
@@ -91,6 +90,12 @@ cardio <-
                                    labels = c("Low HRP",
                                               "Medium HRP",
                                               "High HRP"),
+                                   ordered_result = TRUE),
+            hbp_group = cut_number(ca, 
+                                   n = 3, 
+                                   labels = c("Low HBP",
+                                              "Medium HBP",
+                                              "High HBP"),
                                    ordered_result = TRUE)
   )
 
@@ -290,6 +295,7 @@ phys_clean <-
   relocate(sex:hrp, .after = id)
   
 write_csv(phys_clean, "data/processed/physiology_clean.csv")
+# Create codebook
 write_tsv(tibble(variables = names(phys_clean)), 
           "data/processed/physiology_clean_codebook.txt", 
           col_names = FALSE)
@@ -307,11 +313,12 @@ experiment_clean <-
          physical_expected_stress:physical_experienced_hr_change,
          mental_expected_stress:mental_experienced_hr_change,
          resting_hr, resting_hr_estimated,
-         ca:hrp_group,
+         ca:hbp_group,
          ends_with("sum")
-         ) %>% glimpse()
+         )
 
 write_csv(experiment_clean, "data/processed/survey_clean.csv")
+# Create codebook
 write_tsv(tibble(variables = names(experiment_clean)), 
           "data/processed/survey_clean_codebook.txt", 
           col_names = FALSE)

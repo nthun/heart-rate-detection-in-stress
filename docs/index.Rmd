@@ -15,7 +15,7 @@ editor_options:
 ```{r, echo = TRUE, eval = FALSE, include = FALSE}
 # TODO: Separate data processing and analysis
 
-install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "naniar", "skmir", "lavaan", "tidySEM", "ggExtra"))
+install.packages(c("tidyverse", "skimr", "lme4", "performance", "sjPlot", "here", "emo", "broom.mixed", "psych", "easystats", "ggbeeswarm", "skmir", "lavaan", "tidySEM", "ggExtra"))
 ```
 
 # Project setup 
@@ -31,10 +31,16 @@ library(stringi)
 library(gt)
 library(ggbeeswarm)
 library(correlation)
-library(naniar)
+library(here)
 library(patchwork)
 library(skimr)
 library(ggsignif)
+library(insight)
+library(tidyverse)
+library(lavaan)
+library(tidySEM)
+library(semTable)
+library(parameters)
 
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE,
                       fig.width = 9, fig.height = 6)
@@ -75,9 +81,9 @@ phys_metrics <-
          "eda.avg", "Mean EDA (uS)") %>% 
   mutate(metric = fct_inorder(metric))
 
-skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
-skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
-heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
+# skin_avg <- c("lg_eda_avg", "lg_scl_avg", "lg_scr_avg")
+# skin_increase <- c("eda_increase", "scl_increase", "scr_increase")
+# heart_metrics <- c("lg_rmssd", "lg_hf_percent", "lg_hf_n_u", "meanhr")
 
 
 react_vars <-
@@ -105,89 +111,11 @@ react_vars <-
 
 The following analysis report contains the descriptive and inferential statistics for the experiment that investigated how physiological and subjective arousal might be mediated by cardioceptive accuracy.
 
-To access the previous version, with cognitive tasks separately:
-https://nthun.github.io/heart-rate-detection-in-stress/preliminary_results.html 
-
-```{r data_read, include = FALSE}
-
-experiment_data_raw <- 
-  googlesheets4::read_sheet("https://docs.google.com/spreadsheets/d/19AcUrnOCxCH_Huu1yQ4JjEuJWljFRzhFQPYIGU1nhj0/edit#gid=57027312") %>% 
-  janitor::clean_names() %>% 
-  mutate(code = as.character(code))
-
-phys_data <- 
-  read_csv(here::here("data/08_summarised/phys_long_merged.csv")) %>% 
-  mutate(marker = recode(marker, !!!renamed_markers))
-
-```
-
-# Experiment data processing
-## Calculate cardioreceptive metrics
-
-Cardioreceptive accuracy, bias, and heart rate perception were calculated using the formulas:  
-
-- ca_ = 1 - |(hr_XXobj - hr_XXszubj)/ hr_XXobj| 
-- hrp = resting_hr_estimated / resting_hr 
-
-XX stands for 25,35,50
-With the average calculated for each pearson. 
-
-
+# Reading processed data
 ```{r}
-# Calculate cardioceptive metrics
-cardio <-
-   experiment_data_raw %>%
-   transmute(id = stri_trans_general(code, "Latin-ASCII") %>%
-                  str_to_lower(),
-             ca_25 = 1 - abs((hr_25obj - hr_25szubj) / hr_25obj),
-             ca_35 = 1 - abs((hr_35obj - hr_35szubj) / hr_35obj),
-             ca_50 = 1 - abs((hr_50obj - hr_50szubj) / hr_50obj),
-             ca = (ca_25 + ca_35 + ca_50)/3,
-             hrp = resting_hr_estimated / resting_hr,
-             hrp_group = cut_number(hrp, 
-                                n = 3, 
-                                labels = c("Low HRP",
-                                           "Medium HRP",
-                                           "High HRP"),
-                                ordered_result = TRUE),
-             hbp_group = cut_number(ca, 
-                                n = 3, 
-                                labels = c("Low HBP",
-                                           "Medium HBP",
-                                           "High HBP"),
-                                ordered_result = TRUE)
-)
-
-ca_alpha <-
-   cardio %>% 
-   select(starts_with("ca_")) %>% 
-   psych::alpha() %>% 
-   .[["total"]] %>% 
-   .[["std.alpha"]]
-
-```
-
-Cronbach alpha for cardioceptive accuracy: `r round(ca_alpha, 2)`
-
-
-```{r}
-experiment <-
-   experiment_data_raw %>%
-   rename(id = code, task_order = mental_order_1_2) %>%
-   mutate(
-      id = stri_trans_general(id, "Latin-ASCII") %>%
-           str_to_lower(),
-      sex = recode(sex, `1` = "Male", `2` = "Female"),
-      bodyweight = as.numeric(bodyweight),
-      bmi = bodyweight / (bodyheight / 100) ^ 2,
-      task_order = if_else(task_order == 1,
-                           "Cognitive first",
-                           "Physical first") %>%
-                   as.factor()) %>%
-   select(-starts_with("marker_")) %>%
-   left_join(cardio, by = "id")
-
-
+reactivity <- read_csv(here("data/processed/reactivity_clean.csv"))
+experiment <- read_csv(here("data/processed/survey_clean.csv"))
+phys_trans <- read_csv(here("data/processed/physiology_clean.csv"))
 ```
 
 # Sample characteristics
@@ -266,35 +194,6 @@ stai_sum <-
    mutate(stai_prop = stai_avg/first(stai_avg)) %>% 
    ungroup()
 
-```
-
-
-### STAI reliability
-```{r}
-stai_wide <-
-  experiment %>% 
-  select(id, matches("^stai_s_(mental|physical)")) %>% 
-  select(-matches("sum$|mental$|physical$"),
-         -one_of(c("stai_s_mental_t0", 
-                   "stai_s_mental_t1", 
-                   "stai_s_physical_t0", 
-                   "stai_s_physical_t1")))
-
-stai_wide %>% 
-  pivot_longer(-id) %>% 
-  extract(name, 
-          regex = "stai_s_(.*)_t(.)_(.*)$", 
-          into = c("task", "time", "item")) %>% 
-  pivot_wider(names_from = c("task", "time"),
-              values_from = "value") %>% 
-  select(mental_0:physical_1) %>% 
-  psych::alpha()
-
-```
-
-
-```{r}
-# Table
 stai_sum %>% 
    select(-stai_se) %>% 
    pivot_wider(names_from = c(time), names_sep = "_",
@@ -355,29 +254,6 @@ stai_sum %>%
         x = NULL) +
   theme(panel.grid = element_blank())
 
-
-```
-
-## Subjective stress (VAS)
-
-Most of the participants regarded the cognitive stress more stressful than the physical stress.
-
-```{r}
-experiment %>% 
-   select(id, mental_experienced_stress, physical_experienced_stress) %>% 
-   pivot_longer(-id) %>% 
-   mutate(name = str_remove(name, "_experienced_stress") %>% 
-                 recode(!!!renamed_markers)) %>% 
-   ggplot() +
-   aes(y = value, x = name) +
-   geom_violin(aes(fill = name), alpha = .8, show.legend = FALSE) +
-   geom_line(aes(group = id), alpha = .2) +
-   geom_boxplot(show.legend = FALSE, width = .25, outlier.alpha = 0, alpha = .6) +
-   geom_quasirandom(groupOnX = TRUE) +
-   labs(x = NULL, 
-        y = "On a scale of 0-100, how stressful was the task for you?",
-        title = "Distribution of Experienced stress by task",
-        subtitle = "Physical stress was percieved as less stressful.")
 
 ```
 
@@ -451,7 +327,6 @@ subj_long %>%
   fmt_number(`STAI-S Before`:`Perceived HR`, decimals = 2)
 ```
 
-
 The subjective stress measure also showed, that participants regarded the mental stressor to be more stressful than the physical stressor.
 
 ```{r}
@@ -477,66 +352,7 @@ experiment %>%
 
 # Psychophysiological response to stress
 
-## Outlier detection
-
-We first flag outliers (calculated as outside of `r outlier_treshold_sd` SDs), and check how many can be found in each metric.
-
 ```{r}
-outlier_flagged <- 
-   phys_data %>% 
-   pivot_longer(eda_avg:hf_abs) %>% 
-   group_by(name) %>% 
-   mutate(outlier = if_else(abs(scale(value)) > outlier_treshold_sd, TRUE, FALSE),
-          .before = value) %>% 
-   ungroup()
-
-outlier_flagged %>% 
-   group_by(name) %>% 
-   summarise( n_outlier = sum(outlier, na.rm = TRUE),
-              perc_outlier = mean(outlier, na.rm = TRUE)) %>% 
-   arrange(-perc_outlier) %>% 
-   gt() %>% 
-   fmt_percent(perc_outlier) %>% 
-   cols_label(name = "Name",
-              n_outlier = "N outlier",
-              perc_outlier = "% outlier") %>% 
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey")
-
-outlier_flagged %>% 
-   ggplot() +
-   aes(x = value, fill = outlier) +
-   geom_histogram() +
-   facet_wrap(~name, scales = "free") +
-   scale_fill_manual(values = c("lightblue", "red")) +
-   labs(x = NULL, y = NULL,
-        title = "Histogram of the physiological variables",
-        subtitle = str_glue("Outliers (red) are identified as values outside of {outlier_treshold_sd} SD"),
-        fill = "Outlier")
-
-```
-
-## Data cleaning and processing
-
-We remove outliers, and apply natural log+1 transformation on the values. Values show that the EDA and SCR increase variables should be analyzed using a GLM with exponential distribution.
-
-```{r}
-
-phys_trans <-
-   outlier_flagged %>% 
-   # Remove outliers
-   filter(!outlier) %>% 
-   # Create log transformed values
-   mutate(lg = log(value + 1)) %>% 
-   pivot_wider(names_from = "name",
-               values_from = c(value, lg)) %>% 
-   set_names(str_remove(names(.), "value_")) %>% 
-   # Join participant data
-   left_join(select(experiment, 
-                    id, sex, age, bodyfat_percent, bmi, task_order,
-                    ca, hrp), 
-             by = "id")
-
 phys_trans %>% 
    select(starts_with("lg_")) %>% 
    pivot_longer(everything()) %>% 
@@ -551,32 +367,7 @@ phys_trans %>%
 
 ```
 
-## Calculate physiological reactivity metrics
-
-Reactivity values were calculated for HR, HF%, RMSSD, and EDA, by subtracting the baseline (t0) from the post-stress measurement (t1) for each task.
-
 ```{r}
-#  Calculate reactivity statistics
-reactivity <-
-   phys_trans %>% 
-   select(id, marker, meanhr, hf_percent, rmssd, eda_avg) %>% 
-   pivot_wider(names_from = marker,
-               values_from = c("meanhr", "hf_percent", "rmssd","eda_avg")) %>% 
-   transmute(id,
-             #HR
-             `meanhr_react_N-back` = `meanhr_N-back` - meanhr_Baseline,
-             meanhr_react_Handgrip = meanhr_Handgrip - meanhr_Baseline,
-             # HF
-             `hf.percent_react_N-back` = `hf_percent_N-back` - hf_percent_Baseline,
-             hf.percent_react_Handgrip = hf_percent_Handgrip - hf_percent_Baseline,
-             # RMSSD
-             `rmssd_react_N-back` = `rmssd_N-back` - rmssd_Baseline,
-             rmssd_react_Handgrip = rmssd_Handgrip - rmssd_Baseline,
-             #EDA
-             `eda.avg_react_N-back` = `eda_avg_N-back` - eda_avg_Baseline,
-             eda.avg_react_Handgrip = eda_avg_Handgrip - eda_avg_Baseline) %>% 
-   left_join(stai_reactivity, by = "id")
-   
 reactivity %>% 
    pivot_longer(-id) %>% 
    ggplot() +
@@ -585,24 +376,9 @@ reactivity %>%
    facet_wrap(~name, scales = "free", nrow = 4) +
    labs(title = "Reactivity histograms of key metrics")
 
-# write_csv(reactivity, "data/processed/reactivity_clean.csv")
-
 ```
-
-## Missing data analysis
-
-```{r}
-phys_data %>% 
-   select(eda_avg:hf_abs) %>% 
-   group_by() %>% 
-   miss_var_summary() %>% 
-   print_html()
-
-```
-
 
 # Analysis of the effects of the tasks on physiological variables
-
 ## Descriptive statistics
 ```{r}
 
@@ -623,45 +399,6 @@ phys_trans %>%
 ```
 
 
-## Heart rate related variables
-
-### Variables
-Heart rate and HRV variables were investigated using linear mixed-effect models, with random intercept by person. HRV variables were log+1 transformed to correct for right skew.
-
-### Results 
-HR was increased in the physical task compared to baseline.
-log(RMSSD) did not change significantly in any task.
-log(HF%) and log(HF natural unit) shows a difference from baseline in cognitive (increase), and physical task (decrease).
-Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
-
-```{r}
-
-phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(phys_metrics$name[1:4])) %>% 
-   pivot_longer(all_of(phys_metrics$name[1:4])) %>% 
-   group_by(name) %>% 
-   nest() %>% 
-   mutate(model = map(data, 
-                      ~lmer(value ~ marker + 
-                            task_order + sex + scale(bodyfat_percent) + (1|id), 
-                            data = .x))) %>% 
-   pull(model) %>% 
-   set_names(phys_metrics$name[1:4]) %>% 
-   tab_model(dv.labels = phys_metrics$metric[1:4], 
-             pred.labels = c("(Intercept)",
-                             "Task [N-back]",
-                             "Task [Handgrip]",
-                             "Task order [Physical first]",
-                             "Sex [Male]",
-                             "Bodyfat %"),
-             string.stat = "t",
-             string.ci = "95% CI", 
-             # file = "tables/phys_change.html",
-             show.stat = TRUE
-             ) 
-  
-```
 
 ## Visualize phys changes
 ```{r}
@@ -748,118 +485,11 @@ phys_trans %>%
   
 ```
 
-## Electrodermal response
-### Variables
-Raw electrodermal response was decomposed to tonic (SCL) and phasic (SCR) components. SCL was calculated by using the exponential moving average of the EDA values. The SCR values were calculated by taking the difference of EDA and SCL.
-   We inspected the EDA, SCL, and SCR averages, and the increase value of these metrics. 
-   The averages were analyzed using linear mixed-effect models. The increase values are zero censored and heavily skewed, thus showing a gamma distribution. Therefore, we analyzed these values using generalized linear mixed-effect models, using a Gamma distribution with inverse link. 
-Data had to be transformed to be applicable for statistical modeling. Average values were log+1 transformed and centered. Increase values were centered, then multiplied by 1000 for easier interpretation, then 1 is added to values to be larger than zero. 
-
-### Results
-EDA and SCL average were significantly larger than baseline. Cognitive tasks were associated with a smaller increase, while the physical task was associated with a larger increase.
-For SCR average, none of the tasks exerted a significant effect.
-For the increase statistics, only the physical task showed significantly larger value than baseline.
-
-Sex, task order, and bodyfat percent were controlled, and were not significant predictors (age has little variability in the sample).
-
-
-```{r}
-# LMEMs for average values
-skin_avg_mod <-
-   phys_trans %>% 
-   select(id, task_order, marker, sex, bodyfat_percent, 
-          all_of(skin_avg)) %>% 
-   pivot_longer(all_of(skin_avg), values_drop_na = TRUE) %>% 
-   # Center values
-   mutate(std_value = scale(value, scale = FALSE)) %>% 
-   group_by(name) %>% 
-   nest() %>% 
-   mutate(model = map(data, ~lmer(std_value ~ marker +
-                                  task_order + sex + scale(bodyfat_percent) +
-                                  (1|id),
-                                  data = .x))) %>% 
-   pull(model) %>% 
-   set_names(skin_avg)
-
-# GLMEMs for increase values
-skin_increase_mod <-
-   phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(skin_increase)) %>% 
-   pivot_longer(all_of(skin_increase), values_drop_na = TRUE) %>% 
-   # Center, multiply by 1000, and add 1
-   mutate(std_value = scale(value, scale = FALSE)*1000+1) %>% 
-   group_by(name) %>% 
-   nest() %>% 
-   mutate( model = map(data, ~glmer(std_value ~ marker + task_order + sex +
-                                                scale(bodyfat_percent) + (1|id),
-                                    family = Gamma(link = "inverse"),
-                                    data = .x))) %>% 
-   pull(model) %>% 
-   set_names(skin_increase)
-
-tab_model( c(skin_avg_mod, skin_increase_mod),
-           dv.labels = c(skin_avg, skin_increase),
-           show.loglik = TRUE,
-           show.aicc = TRUE)
-
-```
-
-```{r}
-phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(skin_avg), all_of(skin_increase)) %>% 
-   pivot_longer(c(all_of(skin_avg), all_of(skin_increase)), values_drop_na = TRUE) %>%
-   group_by(name, marker) %>% 
-   summarise(avg_value = mean(value),
-             se_value = sd(value)/sqrt(n()), 
-             .groups = "drop") %>% 
-   ggplot() +
-   aes(x = marker, y = avg_value, group = name,
-       ymin = avg_value - se_value, ymax = avg_value + se_value) +
-   geom_pointrange() +
-   geom_line(aes(color = name), size = 1.2, alpha = .6, show.legend = FALSE) +
-   scale_color_viridis_d() +
-   facet_wrap(~name, scales = "free_y") +
-   labs(title = "Mean values of electrodermal variables by task",
-        y = "Mean value (SE)",
-        x = NULL) +
-  theme(panel.grid = element_blank())
-```
-
-```{r eval=FALSE, include=FALSE}
-# Check if the order influenced the metrics
-# For average metrics, it did not. SCR showed a strange pattern.
-# For increase metrics, the first task always increased the metric more
-# Overall, EDA or SCL average should be used as the sypmathetic marker.
-
-phys_trans %>% 
-   select(id, marker, task_order, sex, bodyfat_percent, 
-          all_of(skin_avg), all_of(skin_increase)) %>% 
-   pivot_longer(c(all_of(skin_avg), all_of(skin_increase)), values_drop_na = TRUE) %>%
-   group_by(name, task_order, marker) %>% 
-   summarise(avg_value = mean(value),
-             se_value = sd(value)/sqrt(n()), 
-             .groups = "drop") %>% 
-   ggplot() +
-   aes(x = marker, y = avg_value, color = task_order, 
-       ymin = avg_value - se_value, ymax = avg_value + se_value) +
-   geom_pointrange(alpha = .6) +
-   geom_line(aes(group = interaction(name, task_order)), size = 1.2, alpha = .6) +
-   scale_color_viridis_d() +
-   facet_wrap(~name, scales = "free_y") +
-   labs(title = "Mean values of electrodermal variables by task",
-        y = "Mean value (SE)",
-        x = NULL,
-        color = "Task order")
-```
-
 ## Reactivity measures
 ### Variables
 Reactivity (task - baseline) values were calculated for EDA average, HF%, RMSSD, HR average, and STAI. 
 
 ### Results
-
 
 ```{r}
 reactivity %>% 
@@ -887,32 +517,10 @@ reactivity %>%
 
 ```
 
-
-# Hypothesis tests
-
-## H1
-There is a medium level association between cardioceptive accuracy [cardioceptive_accuracy] and cardiovascular reactivity (positive for heart rate [ΔHRmental, ΔHRphysical], electrodermal response [SCRmental; SCRphysical]; negative for vagal component of heart rate variability [ΔRMSSDmental, ΔHFmental; ΔRMSSDphysical, ΔHFphysical]) in both conditions (mental; physical)
-
-We calculated the reactivity values, and correlated those with cardioceptive accuracy/bias, and heart rate perception.
-
-```{r eval=FALSE, include=FALSE}
-# Detailed table
-experiment %>% 
-   select(id, ca, hrp) %>% 
-   left_join(reactivity, by = "id") %>% 
-   rename_with(~str_remove(., "react_")) %>% 
-   correlation(p_adjust = "fdr", 
-               select2 = c("ca", "hrp"),
-               select = all_of(react_vars)) %>% 
-   filter(!str_detect(Parameter1, "stai_")) %>% 
-   separate(Parameter1, into = c("metric", "task"), sep = "_") %>% 
-   arrange(Parameter2, task) %>% 
-   print_html()
-```
+# Creating tables and visualizations
 
 
 ```{r}
-# More concise table
 experiment %>% 
    select(id, ca, hrp) %>% 
    left_join(reactivity, by = "id") %>% 
@@ -927,14 +535,37 @@ experiment %>%
    relocate(task, metric) %>% 
    select(-name) %>% 
    arrange(task) %>% 
+   as_tibble() %>% 
    print_html() %>% 
    cols_hide(1)
 ```
 
-### Correlation between pooled physiological measurements and cardioceptive metrics
+## HBP and HRP corr figure
+```{r}
+
+hrp_hbp <-
+  experiment %>% 
+  select(hrp, ca) %>% 
+  ggplot() +
+  aes(x = ca, y = hrp) +
+  geom_point(alpha = .8) +
+  geom_smooth(method = lm) +
+  labs(x = "Heart beat perception",
+       y = "Heart rate perception") +
+  theme(panel.grid = element_blank()) +
+  coord_fixed(ratio = 1)
+  
+
+ggExtra::ggMarginal(hrp_hbp, type = "density", alpha = .7,
+                    xparams = list(fill = "salmon"),
+                    yparams = list(fill = "cyan")
+                    )
+```
+
+## Correlation between pooled physiological measurements and cardioceptive metrics
 
 ```{r eval=FALSE, include=FALSE}
-# Use the phys data instead of the reactivity
+
 experiment %>% 
    select(id, ca, hrp) %>% 
    left_join(select(phys_trans, id, marker, one_of(phys_metrics$name[1:4])), 
@@ -947,6 +578,7 @@ experiment %>%
    relocate(metric, .after = Parameter2) %>% 
    select(-Parameter1) %>%
    arrange(Parameter2) %>%
+   as_tibble() %>% 
    print_html()
   
 # Simplified table
@@ -965,6 +597,7 @@ experiment %>%
                ) %>% 
    summary() %>% 
    left_join(phys_metrics, by = c("Parameter" = "name")) %>% 
+   as_tibble() %>% 
    print_html() %>% 
    cols_move_to_start(metric) %>% 
    cols_hide("Parameter") %>% 
@@ -980,32 +613,6 @@ experiment %>%
 
 We did not find a relationship between cardioceptive accuracy and physiological reactivity measures (HR, RMSSD, HF%, EDA) in any of the tasks. However, CA was negatively associated with HR and positively with lgRMSSD.
 Similarly, heart rate perception was negatively associated with HR and positively with lgRMSSD, but did not moderate the reaction to stress.
-
-
-```{r eval=FALSE, include=FALSE}
-# Removed
-phys_trans %>% 
-   select(meanhr, lg_rmssd, marker, hrp) %>% 
-   pivot_longer(meanhr:lg_rmssd, 
-                names_to = "name",
-                values_to = "value") %>% 
-   left_join(phys_metrics, by = "name") %>% 
-   ggplot() +
-   aes(x = hrp, y = value, color = marker) +
-   geom_point(alpha = .6) +
-   geom_smooth(method = "lm", 
-               size = 1.2, 
-               se = FALSE, 
-               alpha = .6) +
-   scale_color_viridis_d() +
-   labs(title = "Association between Heart rate perception and mean HR",
-        subtitle = "The correlation is similar in all tasks",
-        color = "Task",
-        y = NULL,
-        x = "Heart rate perception") +
-   facet_wrap(~metric, scales = "free_y") +
-   theme(panel.grid = element_blank())
-```
 
 ```{r}
 phys_trans %>% 
@@ -1033,109 +640,147 @@ phys_trans %>%
    theme(panel.grid = element_blank())
 ```
 
-## H2
-Cardioceptive accuracy [cardioceptive_accuracy] moderates the association between objective [ΔHRmental, SCRmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, SCRphysical, ΔRMSSDphysical, ΔHFphysical] and subjective reactions to stress [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before]; higher cardioceptive accuracy is related to a stronger association
 
-We fitted linear regressions on the reactivity score for each metric (HR mean, HF%, RMSSD, and EDA mean) for each task (cognitive and physical). We investigated if the STAI-S change in the respective task had a significant association with the change metric, and if the cardioceptive accuracy or heart rate perception moderated the association. We included sex, body fat percent, and task order as covariates.
+# Hypothesis tests
+## H1-2
+Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, ΔEDAmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, ΔEDAphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
 
-We found a significant negative association between the reactivity of EDA mean in the cognitive task and the change in STAI. The higher the perceived stress was, the more the EDA mean decreased in the cognitive task.
+We fitted linear regressions for each task (N-back and physical) separately. We investigated if physiological changes, cardioceptive accuracy (HBP), or expected stress predicted STAI-S change in the respective tasks. We used task order as a covariate. 
+
+- HRP was negatively associated with STAI-S change (in the Handgrip task).
+- Expected stress predicted STAI-S change in the N-back task (but not the Handgrip task).
+- From the physiological measures, only RMSSD predicted STAI-S change (in the N-back task).
+- The interaction of HRP and mean HR negatively predicted STAI-S change (in the Handgrip task).
+- The interaction of HRP and mean HF% negatively predicted STAI-S change (in the N-back task).
 
 
 ```{r}
-hypo2 <-
+hypo12 <-
    reactivity %>% 
-   # Put all reactivity metrics and cardioceptive metrics together
-   left_join(select(experiment, id, ca, hrp, bodyfat_percent, hrp_group, sex, task_order), by = "id") %>%
-   # Create a redundant dataset to run several regressions at once
-   pivot_longer(-c(id, ca, hrp, hrp_group, bodyfat_percent, sex, `stai_react_N-back`, stai_react_Handgrip, task_order),
-                names_to = c("metric","task"),
-                names_pattern = "(.*)_react_(.*)") %>% 
+   left_join(select(experiment, 
+                    id, ca, hrp, 
+                    bodyfat_percent, 
+                    sex, task_order,
+                    physical_expected_stress,
+                    mental_expected_stress),
+                    by = "id") %>%
+   pivot_longer(`meanhr_react_N-back`:eda.avg_react_Handgrip,
+                names_pattern = "(.*)_react_(.*)",
+                names_to = c("metric", "task")) %>% 
    group_by(metric, task) %>% 
    # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(`stai_react_N-back`:bodyfat_percent, value), 
+   mutate(across(c(`stai_react_N-back`:bodyfat_percent,                  
+                 physical_expected_stress:mental_expected_stress,
+                 value), 
                  ~scale(.x) %>% 
-                  as.numeric())) %>% 
+                  as.numeric())) %>%    
    nest() %>% 
-   # Create several models for different cardioceptive metrics and tasks
-   mutate(`ca_N-back_mod` = map(data, 
-                            ~lm(`stai_react_N-back` ~ value * ca +
-                                        bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          `hrp_N-back_mod` = map(data, 
-                            ~lm(`stai_react_N-back` ~ value * hrp +
-                                        bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          ca_Handgrip_mod = map(data, 
-                            ~lm(stai_react_Handgrip ~ value * ca +
-                                         bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          hrp_Handgrip_mod = map(data, 
-                            ~lm(stai_react_Handgrip ~ value * hrp +
-                                        bodyfat_percent + sex + task_order, 
-                                data = .x))
-   ) %>% 
-   # Drop all models where the physiological and subjective task doesn't mach
-   pivot_longer(`ca_N-back_mod`:hrp_Handgrip_mod) %>% 
+   mutate(`N-back_stai_react_ca` = map(data, 
+                                     ~lm(`stai_react_N-back` ~ ca * value +
+                                         mental_expected_stress + 
+                                         bodyfat_percent +
+                                         sex + 
+                                         task_order,
+                                         data = .x)),
+          Handgrip_stai_react_ca = map(data, 
+                                     ~lm(stai_react_Handgrip ~ ca * value +
+                                         physical_expected_stress + 
+                                         bodyfat_percent +
+                                         sex + 
+                                         task_order,
+                                         data = .x)),
+          `N-back_stai_react_hrp` = map(data, 
+                                     ~lm(`stai_react_N-back` ~ hrp * value +
+                                         mental_expected_stress + 
+                                         bodyfat_percent +
+                                         sex + 
+                                         task_order,
+                                         data = .x)),
+          Handgrip_stai_react_hrp = map(data, 
+                                     ~lm(stai_react_Handgrip ~ hrp * value + 
+                                         physical_expected_stress + 
+                                         bodyfat_percent +
+                                         sex + 
+                                         task_order,
+                                         data = .x))) %>% 
+   pivot_longer(`N-back_stai_react_ca`:Handgrip_stai_react_hrp) %>% 
    filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
           (str_detect(task, "Handgrip") & str_detect(name, "Handgrip"))) %>% 
-   unite("metric_task", metric, task) %>% 
-   arrange(name)
-
-# Print all models
-hypo2 %>% 
+   mutate(name = str_replace(name, "N-back", task)) %>% 
+   mutate(name = str_replace(name, "react", metric)) %>% 
+   ungroup()
+   
+hypo12_sum <- 
+   hypo12 %>% 
    pull(value) %>% 
-   set_names(hypo2$metric_task) %>% 
-   map(tidy, conf.int = TRUE) %>% 
-   map(~mutate(.x, cr = case_when(str_detect(term, "ca$") ~ "ca", 
-                                  str_detect(term, "hrp$") ~ "hrp"))) %>% 
-   map(~fill(.x, cr, .direction = "up")) %>% 
-   bind_rows(.id = "model") %>% 
-   separate(model, into = c("metric", "task"), sep = "_") %>% 
-   mutate(term = str_replace(term, "value", metric)) %>% 
-   group_by(metric, task, cr) %>% 
-   select(metric, task, cr, term, estimate, std.error, 
-          conf.low, conf.high, 
-          statistic, p.value) %>% 
-   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
+   set_names(hypo12$name) %>% 
+   map_dfr(tidy, conf.int = TRUE, .id = "model") %>% 
+   group_by(model) %>% 
+   mutate(metric = str_match(model, ".*_(.*)_.*$")[,2],
+          term = str_replace(term, "value", metric)) %>% 
+   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) 
+
+# All models  (to Supplementary material)
+hypo12_sum %>% 
    gt() %>% 
-   fmt_number(c("estimate", "std.error", "statistic",
-                "conf.low", "conf.high"
-                ), 
-                decimals = 2) %>%
-   fmt_number("p.value", decimals = 3) %>%
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
    tab_options(column_labels.font.weight = "bold",
                column_labels.background.color = "lightgrey",
                row_group.background.color = "lightgrey", 
                row_group.font.weight = "bold", 
                row.striping.include_table_body = TRUE,
                row.striping.background_color = "#EEEEEE"
-   )
+   )   
 
-# Model values
-hypo2 %>% 
-   pull(value) %>% 
-   set_names(paste(str_match(hypo2$name, "^(\\w+)_.*_mod")[,2],
-                   hypo2$metric_task, 
-                   sep = "_"
-                   )) %>% 
-   map_dfr(glance, .id = "model") %>% 
-   select(model:adj.r.squared, statistic:BIC, df.residual) %>% 
-   relocate(df.residual, .after = df) %>% 
-   gt() %>% 
-   fmt_number(c("r.squared", "adj.r.squared", "statistic",
-                "logLik", "AIC", "BIC"), 
-                decimals = 2) %>%
-   fmt_number(c("df", "df.residual"), decimals = 0) %>%
-   fmt_number("p.value", decimals = 3) %>%
+
+### All significant associations
+
+hypo12_sum %>% 
+  ungroup() %>% 
+  # mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
+  filter(p.value < .05,
+         !term %in% c("(Intercept)", "bodyfat_percent", "sexMale")) %>%
+  arrange(model, term) %>% 
+     gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
+   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
    tab_options(column_labels.font.weight = "bold",
                column_labels.background.color = "lightgrey",
                row_group.background.color = "lightgrey", 
                row_group.font.weight = "bold", 
                row.striping.include_table_body = TRUE,
-               row.striping.background_color = "#EEEEEE")
-  
+               row.striping.background_color = "#EEEEEE"
+   )   
+
+### Simplified table
+
+hypo12_sum %>% 
+  separate(model, into = c("task", NA, "name", "ca"), sep = "_") %>%
+  left_join(phys_metrics, by = "name") %>% 
+  filter(!term %in% c("(Intercept)", "ca", "hrp", "task_orderPhysical first", "sexMale","bodyfat_percent")) %>% 
+  mutate(term = str_remove(term, "mental_|physical_") %>% 
+                str_replace("hrp", "ca") %>% 
+                str_replace("meanhr|hf.percent|rmssd|eda.avg", "phys_change"),
+         sig = case_when(p.value <= .001 ~ "***",
+                         p.value <= .01 ~ "**",
+                         p.value <= .05 ~ "*",
+                         TRUE ~ "")) %>% 
+  transmute(task, ca, metric, term, 
+            estimate, sig
+            ) %>% 
+  pivot_wider(names_from = term, values_from = c(estimate, sig)) %>% 
+  arrange(task, ca, metric) %>% 
+  gt(rowname_col = "ca",
+     groupname_col = "task") %>% 
+  cols_align(columns = metric, align = "left") %>% 
+  fmt_number(columns = c(estimate_phys_change, estimate_expected_stress, `estimate_ca:phys_change`), decimals = 2) %>% 
+  cols_merge(columns = c(estimate_phys_change, sig_phys_change)) %>% 
+  cols_merge(columns = c(estimate_expected_stress, sig_expected_stress)) %>% 
+  cols_merge(columns = c(`estimate_ca:phys_change`, `sig_ca:phys_change`))
 
 ```
+
 
 ### Figure: CA/HRP moderates the association of objective and subjective change metrics
 
@@ -1184,419 +829,100 @@ hbp_plot + hrp_plot + plot_layout(nrow = 2)
   
 ```
 
-
-
-```{r}
-hypo2 %>% 
-   filter(metric_task %in% c("eda.avg_N-back") &
-          str_detect(name, "ca")) %>% 
-   select(-value) %>% 
-   unnest(data) %>% 
-   ggplot() +
-   aes(x = `stai_react_N-back`, y = value) +
-   geom_point() +
-   geom_smooth(method = "lm") +
-   labs(title = "The association beween STAI change and EDA mean reactivity in the N-back task",
-        x = "STAI-S change",
-        y = "EDA mean reactivity")
-```
-
-## H3
-Perceived stress in both conditions [mental_experienced_stress; physical_experienced_stress / STAI-S_mental_after – STAI-S_mental_before; STAI-S_physical_after - STAI-S_physical_before] is predicted by cardioceptive accuracy [cardioceptive_accuracy], physiological reactions [ΔHRmental, ΔEDAmental, ΔRMSSDmental, ΔHFmental; ΔHRphysical, ΔEDAphysical, ΔRMSSDphysical, ΔHFphysical], and stress related expectations [mental_expected_stress; physical_expected_stress]
-
-We fitted linear regressions for each task (N-back and physical) separately. We investigated if physiological changes, cardioceptive accuracy (HBP), or expected stress predicted STAI-S change in the respective tasks. We used task order as a covariate. 
-
-- HRP was negatively associated with STAI-S change (in the Handgrip task).
-- Expected stress predicted STAI-S change in the N-back task (but not the Handgrip task).
-- From the physiological measures, only RMSSD predicted STAI-S change (in the N-back task).
-- The interaction of HRP and mean HR negatively predicted STAI-S change (in the Handgrip task).
-- The interaction of HRP and mean HF% negatively predicted STAI-S change (in the N-back task).
-
-
-```{r}
-hypo3 <-
-   reactivity %>% 
-   left_join(select(experiment, 
-                    id, ca, hrp, 
-                    task_order,
-                    bodyfat_percent, 
-                    sex,
-                    physical_expected_stress,
-                    mental_expected_stress),
-                    by = "id") %>%
-   pivot_longer(`meanhr_react_N-back`:eda.avg_react_Handgrip,
-                names_pattern = "(.*)_react_(.*)",
-                names_to = c("metric", "task")) %>% 
-   group_by(metric, task) %>% 
-   # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(`stai_react_N-back`:hrp,                  
-                 physical_expected_stress:mental_expected_stress,
-                 value), 
-                 ~scale(.x) %>% 
-                  as.numeric())) %>%    
-   nest() %>% 
-   mutate(`N-back_stai_react_ca` = map(data, 
-                                     ~lm(`stai_react_N-back` ~ ca * value +
-                                         mental_expected_stress + 
-                                         # bodyfat_percent + 
-                                         sex + 
-                                         task_order,
-                                         data = .x)),
-          Handgrip_stai_react_ca = map(data, 
-                                     ~lm(stai_react_Handgrip ~ ca * value +
-                                         physical_expected_stress + 
-                                         # bodyfat_percent + 
-                                         sex + 
-                                         task_order,
-                                         data = .x)),
-          `N-back_stai_react_hrp` = map(data, 
-                                     ~lm(`stai_react_N-back` ~ hrp * value +
-                                         mental_expected_stress + 
-                                         # bodyfat_percent + 
-                                         sex + 
-                                         task_order,
-                                         data = .x)),
-          Handgrip_stai_react_hrp = map(data, 
-                                     ~lm(stai_react_Handgrip ~ hrp * value + 
-                                         physical_expected_stress + 
-                                         # bodyfat_percent + 
-                                         sex + 
-                                         task_order,
-                                         data = .x))) %>% 
-   pivot_longer(`N-back_stai_react_ca`:Handgrip_stai_react_hrp) %>% 
-   filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
-          (str_detect(task, "Handgrip") & str_detect(name, "Handgrip"))) %>% 
-   mutate(name = str_replace(name, "N-back", task)) %>% 
-   mutate(name = str_replace(name, "react", metric)) %>% 
-   ungroup()
-   
-hypo3_sum <- 
-   hypo3 %>% 
-   pull(value) %>% 
-   set_names(hypo3$name) %>% 
-   map_dfr(tidy, conf.int = TRUE, .id = "model") %>% 
-   group_by(model) %>% 
-   mutate(metric = str_match(model, ".*_(.*)_.*$")[,2],
-          term = str_replace(term, "value", metric)) %>% 
-   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) 
-
-
-hypo3_sum %>% 
-   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
-   gt() %>% 
-   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
-   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey",
-               row_group.background.color = "lightgrey", 
-               row_group.font.weight = "bold", 
-               row.striping.include_table_body = TRUE,
-               row.striping.background_color = "#EEEEEE"
-   )   
-
-
-```
-
-### All significant associations
-```{r}
-hypo3_sum %>% 
-  ungroup() %>% 
-  # mutate(p.value = p.adjust(p.value, method = "fdr")) %>%
-  filter(p.value < .05) %>%
-  arrange(model, term) %>% 
-     gt() %>% 
-   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
-   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey",
-               row_group.background.color = "lightgrey", 
-               row_group.font.weight = "bold", 
-               row.striping.include_table_body = TRUE,
-               row.striping.background_color = "#EEEEEE"
-   )   
-```
-
-```{r}
-# hypo3_sum %>% 
-#   ungroup() %>% 
-#   mutate(model = str_remove(model, "stai_"),
-#          term = str_remove(term, "mental_|physical_")) %>% 
-#   separate(model, sep = "_", into = c("task", "name", "cardiocept")) %>% 
-#    gt() %>% 
-#    fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
-#    fmt_number(c("statistic", "p.value"), decimals = 3) %>%
-#    tab_options(column_labels.font.weight = "bold",
-#                column_labels.background.color = "lightgrey",
-#                row_group.background.color = "lightgrey", 
-#                row_group.font.weight = "bold", 
-#                row.striping.include_table_body = TRUE,
-#                row.striping.background_color = "#EEEEEE")
-
-
-```
-
-
-## H4 
+## H3 
 Perceived HR in both conditions [mental_experienced_HR_change; physical_experienced_HR_change] is predicted by actual change [ΔHRmental, ΔHRphysical] and HR-related expectations [mental_expected_HR_change; physical_expected_HR_change] in both conditions
 
-We fitted linear regressions for each task (cognitive and physical) separately. We investigated if actual (ECG measured) HR change in the respective tasks predicted subjective HR change, and if expectations predicted subjective HR change better. We included sex, body fat percent, and task order as covariates.
+We used a path analysis to include all variables in the same model. We included sex, body fat percent, and task order as covariates.
 
-We found that actual HR change did not predict the experienced HR change in any of the tasks. However, expected HR change significantly predicted subjective HR change in all tasks.
+We found that actual HR change did not predict the experienced HR change in any of the tasks. However, expected HR change significantly predicted subjective HR change in both tasks. STAI was only predicted for the N-Back a
 
 
 ```{r}
-# Build models
-hypo4 <-
+# Prepare data
+path_df <-
    reactivity %>% 
-   select(id, starts_with("meanhr_")) %>% 
+   select(id, starts_with("meanhr_"),
+          starts_with("rmssd_"),
+          starts_with("hf.percent_"),
+          starts_with("eda.avg_"),
+          stai_react_Handgrip,
+          `stai_react_N-back`) %>% 
    # Put HR reactivity metrics expected and experienced change together
-   left_join(select(experiment, id, 
-                    physical_expected_hr_change,
-                    physical_experienced_hr_change,
-                    mental_expected_hr_change,
-                    mental_experienced_hr_change, 
-                    bodyfat_percent, sex, task_order), by = "id") %>% 
+   left_join(select(experiment, 
+                    id, bodyfat_percent, sex, task_order, hrp, ca,
+                    `expectedhr_change_Handgrip` = physical_expected_hr_change,
+                    `experiencedhr_change_Handgrip` = physical_experienced_hr_change,
+                    `expectedhr_change_N-back` = mental_expected_hr_change,
+                    `experiencedhr_change_N-back` = mental_experienced_hr_change), 
+             by = "id") %>%
    # Create a redundant dataset to run several regressions at once
-   pivot_longer(c(`meanhr_react_N-back`:meanhr_react_Handgrip),
+   pivot_longer(cols = -c("id", "bodyfat_percent", "sex", "task_order", "hrp", "ca"),
                 names_to = c("metric","task"),
-                names_pattern = "(.*)_react_(.*)",
-                values_to = "hr_reactivity") %>% 
-      group_by(metric, task) %>% 
-   # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(physical_expected_hr_change:bodyfat_percent, hr_reactivity), 
-                 ~scale(.x) %>% 
-                  as.numeric())) %>% 
-   nest() %>% 
-   # Create different models with and without expected variable
-   mutate(Handgrip_by_expected = map(data, 
-                            ~lm(physical_experienced_hr_change ~ 
-                                physical_expected_hr_change +
-                                bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          `N-back_by_expected` = map(data, 
-                            ~lm(mental_experienced_hr_change ~ 
-                                mental_expected_hr_change +
-                                bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          Handgrip_by_react = map(data, 
-                            ~lm(physical_experienced_hr_change ~ 
-                                hr_reactivity +
-                                bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          `N-back_by_react` = map(data, 
-                            ~lm(mental_experienced_hr_change ~ 
-                                hr_reactivity +
-                                bodyfat_percent + sex + task_order, 
-                                data = .x))
-          ) %>% 
-   pivot_longer(Handgrip_by_expected:`N-back_by_react`) %>% 
-   filter((str_detect(task, "N-back") & str_detect(name, "N-back")) |
-          (str_detect(task, "Handgrip") & str_detect(name, "Handgrip"))) %>% 
-   mutate(name = str_replace(name, "N-back", task)) %>% 
-   ungroup()
+                names_pattern = "^(.*)_.*_(.*)",
+                values_to = "value") %>%  
+  pivot_wider(names_from = "metric", 
+              values_from = "value") %>% 
+  mutate(across(where(is.numeric), ~scale(.x, scale = FALSE)[,1]))
 
-hypo4 %>% 
-   pull(value) %>% 
-   set_names(hypo4$name) %>% 
-   map(tidy, conf.int = TRUE) %>% 
-   bind_rows(.id = "model") %>% 
-   group_by(model) %>% 
-   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
-   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
-   gt() %>% 
-   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
-   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey",
-               row_group.background.color = "lightgrey", 
-               row_group.font.weight = "bold", 
-               row.striping.include_table_body = TRUE,
-               row.striping.background_color = "#EEEEEE"
-   )
+hr_model <- 
+  "stai ~ expectedhr + experiencedhr + meanhr + task_order
+   experiencedhr ~ expectedhr + meanhr + task_order
+   expectedhr ~ task_order
+   meanhr ~ expectedhr + task_order + sex + bodyfat_percent
+"
 
+# Fit model in lavaan
+hr_path <- sem(model = hr_model, 
+               data = path_df, 
+               group = "task")
 
-```
+# Return results
+summary(hr_path, standardized = TRUE, fit.measures = TRUE)
+# parameterEstimates(hr_path, standardized = TRUE, rsquare = TRUE) %>% 
+#   write_csv(file = here::here("docs/path_models/h3.csv"))
 
-```{r}
-# Plot associations
-hypo4_plots <- 
-   hypo4 %>% 
-   distinct(task, .keep_all = TRUE) %>% 
-   select(task, data) %>% 
-   mutate(physical_ract_plot = map(data,
-                                   ~ggplot(.x) +
-                                    aes(x = hr_reactivity,
-                                        y = physical_experienced_hr_change) +
-                                    geom_point(alpha = .3) +
-                                    geom_smooth(method = "lm")),
-          cognitive_ract_plot = map(data,
-                                   ~ggplot(.x) +
-                                    aes(x = hr_reactivity,
-                                        y = mental_experienced_hr_change) +
-                                    geom_point(alpha = .3) +
-                                    geom_smooth(method = "lm")),
-          physical_expected_plot = map(data,
-                                   ~ggplot(.x) +
-                                    aes(x = physical_expected_hr_change,
-                                        y = physical_experienced_hr_change) +
-                                    geom_point(alpha = .3) +
-                                    geom_smooth(method = "lm")),
-          cognitive_expected_plot = map(data,
-                                   ~ggplot(.x) +
-                                    aes(x = mental_expected_hr_change,
-                                        y = mental_experienced_hr_change) +
-                                    geom_point(alpha = .3) +
-                                    geom_smooth(method = "lm"))
-          ) %>% 
-   pivot_longer(physical_ract_plot:cognitive_expected_plot,
-                values_to = "plots") %>% 
-   filter((str_detect(task, "N-back") & str_detect(name, "cognitive")) |
-          (str_detect(task, "Handgrip") & str_detect(name, "physical"))) %>% 
-   mutate(name = str_replace(name, "cognitive", task)) %>% 
-   ungroup() %>% 
-   mutate(plots = map2(plots, name,
-                       ~.x +
-                       labs(subtitle = .y)))
-   
+parameters(hr_path, standardize = "std.all") %>% print_html() 
 
-wrap_plots(hypo4_plots$plots) + 
-   plot_annotation(title = "Association of experienced HR change with actual and expected HR change in different tasks",
-                   subtitle = "Actual HR change did not predict the experienced HR change in any of the tasks.\nHowever, expected HR change significantly predicted subjective HR change in all tasks.")
+# Plotting SEM
+# Format node labels
+pretty_nodes <-
+  get_nodes(hr_path, label = "name") %>% 
+  mutate(label = recode(label,
+                        expectedhr = "Expected\nHR",
+                        experiencedhr = "Perceived\nHR",
+                        stai = "ΔSTAI",
+                        meanhr = "ΔHR")) %>% 
+  # Remove confounders
+  filter(!str_detect(name, "task_order|sex|bodyfat_percent"))
 
-```
-
-
-## H5
-Acuity of perception of heartbeat [cardioceptive_bias] and heart rate [cardioceptive_accuracy_HR] are positively associated
-
-There is a positive correlation between cardioceptive accuracy, caridoceptive bias, but not between cardioceptive metrics and heart rate perception.
-
-```{r}
-phys_trans %>% 
-   distinct(id, .keep_all = TRUE) %>%
-   correlation(
-               select = c("ca", "hrp"),
-               p_adjust = "none")
-
-```
-
-# Sandbox
-
-## Correlation of STAI and phys reactivity measures
-```{r}
-
-n_back_corr <-
-  reactivity %>% 
-  correlation(select = c("meanhr_react_N-back", "hf.percent_react_N-back",
-                         "rmssd_react_N-back", "eda.avg_react_N-back"),
-              select2 = "stai_react_N-back", 
-              p_adjust = "none") %>% 
-  summary() %>% 
-  as_tibble() %>% 
-  mutate(Parameter = str_remove(Parameter, "_react_N-back"))
-
-handgrip_corr <-
-  reactivity %>% 
-  correlation(select = c("meanhr_react_Handgrip", "hf.percent_react_Handgrip",
-                         "rmssd_react_Handgrip", "eda.avg_react_Handgrip"),
-              select2 = "stai_react_Handgrip", 
-              p_adjust = "none") %>% 
-  summary() %>% 
-  as_tibble() %>% 
-  mutate(Parameter = str_remove(Parameter, "_react_Handgrip"))
-
-
-left_join(n_back_corr, handgrip_corr, 
-          by = "Parameter") %>% 
-  left_join(phys_metrics, by = c("Parameter" = "name")) %>% 
-  transmute(metric, 
-            `N-back` = round(`stai_react_N-back`, 2), 
-            Handgrip = stai_react_Handgrip) %>% 
-  print_html()
-
-```
-
-H4 alternative models
-```{r}
-# Build models
-hypo4 <-
-   reactivity %>% 
-   select(id, starts_with("meanhr_")) %>% 
-   # Put HR reactivity metrics expected and experienced change together
-   left_join(select(experiment, id, 
-                    physical_expected_hr_change,
-                    physical_experienced_hr_change,
-                    mental_expected_hr_change,
-                    mental_experienced_hr_change, 
-                    bodyfat_percent, sex, task_order), by = "id") %>% 
-   # Create a redundant dataset to run several regressions at once
-   pivot_longer(c(`meanhr_react_N-back`:meanhr_react_Handgrip),
-                names_to = c("metric","task"),
-                names_pattern = "(.*)_react_(.*)",
-                values_to = "hr_reactivity") %>% 
-      group_by(metric, task) %>% 
-   # Scale all numeric vaiarables (by metric and task)
-   mutate(across(c(physical_expected_hr_change:bodyfat_percent, hr_reactivity), 
-                 ~scale(.x) %>% 
-                  as.numeric())) %>% 
-   nest() %>% 
-   mutate(Handgrip = map(data, 
-                            ~lm(physical_experienced_hr_change ~ 
-                                physical_expected_hr_change +
-                                hr_reactivity +
-                                bodyfat_percent + sex + task_order, 
-                                data = .x)),
-          `N-back` = map(data, 
-                            ~lm(mental_experienced_hr_change ~ 
-                                mental_expected_hr_change +
-                                hr_reactivity +
-                                bodyfat_percent + sex + task_order, 
-                                data = .x))
-          ) %>% 
-   pivot_longer(Handgrip:`N-back`) %>% 
-   filter(task == name) %>% 
-   ungroup()
-
-hypo4 %>% 
-   pull(value) %>% 
-   set_names(hypo4$name) %>% 
-   map(tidy, conf.int = TRUE) %>% 
-   bind_rows(.id = "model") %>% 
-   group_by(model) %>% 
-   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) %>% 
-   # mutate(p.value = p.adjust(p.value, method = "fdr")) %>% 
-   gt() %>% 
-   fmt_number(c("estimate", "std.error", "conf.low", "conf.high"), decimals = 2) %>%
-   fmt_number(c("statistic", "p.value"), decimals = 3) %>%
-   tab_options(column_labels.font.weight = "bold",
-               column_labels.background.color = "lightgrey",
-               row_group.background.color = "lightgrey", 
-               row_group.font.weight = "bold", 
-               row.striping.include_table_body = TRUE,
-               row.striping.background_color = "#EEEEEE"
-   )
-
-
-```
-
-## HBP and HRP corr figure
-```{r}
-
-hrp_hbp <-
-  experiment %>% 
-  select(hrp, ca) %>% 
-  ggplot() +
-  aes(x = ca, y = hrp) +
-  geom_point(alpha = .8) +
-  geom_smooth(method = lm) +
-  labs(x = "Heart beat perception",
-       y = "Heart rate perception") +
-  theme(panel.grid = element_blank()) +
-  coord_fixed(ratio = 1)
+pretty_edges <- 
+                  # Format edges (to std)
+  get_edges(hr_path, label = "est_sig_std") %>% 
+                  # Remove variances
+                  filter(op != "~~",
+                  # Remove confounders
+                         !str_detect(lhs, "task_order|sex|bodyfat_percent"),
+                         !str_detect(rhs, "task_order|sex|bodyfat_percent")
+                  )
   
 
-ggExtra::ggMarginal(hrp_hbp, type = "density", alpha = .7,
-                    xparams = list(fill = "salmon"),
-                    yparams = list(fill = "cyan")
-                    )
+# Create a layout
+layout <- get_layout("", "", "", "stai", "", "","", 
+                     "", "", "", "meanhr", "", "","", 
+                     "expectedhr", "", "", "", "", "", "experiencedhr",
+                     rows = 3)
+
+# Plotting SEM
+hr_plot <- 
+  graph_sem(hr_path, 
+            edges = pretty_edges,
+            nodes = pretty_nodes,
+            layout = layout
+            )
+
+hr_plot
 ```
+
+
+
+

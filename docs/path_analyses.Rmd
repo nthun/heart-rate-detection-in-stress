@@ -46,10 +46,7 @@ path_df <-
                 values_to = "value") %>%  
   pivot_wider(names_from = "metric", 
               values_from = "value") %>% 
-  # select(-(bodyfat_percent:task_order)) %>% 
-  mutate(across(where(is.numeric), ~scale(.x, scale = FALSE)[,1]),
-         meanhr_x_hrp = meanhr*hrp) %>%
-  force()
+  mutate(across(where(is.numeric), ~scale(.x, scale = FALSE)[,1]))
 ```
 
 # Conceptual model
@@ -770,8 +767,9 @@ hr_path <- sem(model = hr_model,
 
 # Return results
 summary(hr_path, standardized = TRUE, fit.measures = TRUE)
-parameterEstimates(hr_path) %>% 
-  write_csv(file = here::here("docs/path_models/hrp_hr.csv"))
+parameterEstimates(hr_path, standardized = TRUE, rsquare = TRUE) %>% 
+  write_csv(file = here::here("docs/path_models/h3.csv"))
+
 parameters(hr_path, standardize = "std.all") %>% print_html() 
 
 # Plotting SEM
