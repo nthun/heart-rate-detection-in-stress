@@ -10,6 +10,7 @@ library(stringi)
 library(gt)
 library(naniar)
 library(skimr)
+library(here)
 
 # Set parameters
 outlier_treshold_sd = 3 # Threshold for outliers in SD
@@ -60,8 +61,9 @@ experiment_data_raw <-
   janitor::clean_names() %>% 
   mutate(code = as.character(code))
 
+# Raw physiological data is available from the authors on request
 phys_data <- 
-  read_csv(here::here("data/08_summarised/phys_long_merged.csv")) %>% 
+  read_csv(here("data/08_summarised/phys_long_merged.csv")) %>% 
   mutate(marker = recode(marker, !!!renamed_markers))
 
 # Experiment data processing
@@ -286,7 +288,7 @@ phys_data %>%
 
 # Save processed data to files -------------------------------------------------
 
-dir.create("data/processed")
+dir.create(here("data/processed"))
 
 # Physiology
 phys_clean <- 
@@ -294,17 +296,17 @@ phys_clean <-
   select(-contains("increase")) %>% 
   relocate(sex:hrp, .after = id)
   
-write_csv(phys_clean, "data/processed/physiology_clean.csv")
+write_csv(phys_clean, here("data/processed/physiology_clean.csv"))
 # Create codebook
-write_tsv(tibble(variables = names(phys_clean)), 
-          "data/processed/physiology_clean_codebook.txt", 
-          col_names = FALSE)
+# write_tsv(tibble(variables = names(phys_clean)), 
+#           "data/processed/physiology_clean_codebook.txt", 
+#           col_names = FALSE)
 
 # Reactivity measures
-write_csv(reactivity, "data/processed/reactivity_clean.csv")
-write_tsv(tibble(variables = names(reactivity)), 
-          "data/processed/reactivity_codebook.txt", 
-          col_names = FALSE)
+write_csv(reactivity, here("data/processed/reactivity_clean.csv"))
+# write_tsv(tibble(variables = names(reactivity)), 
+#           "data/processed/reactivity_codebook.txt", 
+#           col_names = FALSE)
 
 experiment_clean <-
   experiment %>%
@@ -317,8 +319,8 @@ experiment_clean <-
          ends_with("sum")
          )
 
-write_csv(experiment_clean, "data/processed/survey_clean.csv")
+write_csv(experiment_clean, here("data/processed/survey_clean.csv"))
 # Create codebook
-write_tsv(tibble(variables = names(experiment_clean)), 
-          "data/processed/survey_clean_codebook.txt", 
-          col_names = FALSE)
+# write_tsv(tibble(variables = names(experiment_clean)), 
+#           here("data/processed/survey_clean_codebook.txt"), 
+#           col_names = FALSE)
