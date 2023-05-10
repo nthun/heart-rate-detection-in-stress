@@ -733,6 +733,9 @@ hypo12_sum %>%
                row.striping.background_color = "#EEEEEE"
    )   
 
+hypo12 %>% 
+  mutate(model_stat = map(value, glance)) %>% 
+  unnest(model_stat)
 
 ### All significant associations
 
@@ -888,8 +891,8 @@ parameters(hr_path, standardize = "std.all") %>% print_html()
 pretty_nodes <-
   get_nodes(hr_path, label = "name") %>% 
   mutate(label = recode(label,
-                        expectedhr = "Expected\nHR",
-                        experiencedhr = "Perceived\nHR",
+                        expectedhr = "Expected\nHR change",
+                        experiencedhr = "Perceived\nHR change",
                         stai = "ΔSTAI",
                         meanhr = "ΔHR")) %>% 
   # Remove confounders
