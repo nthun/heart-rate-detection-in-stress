@@ -923,6 +923,99 @@ hr_plot <-
 hr_plot
 ```
 
+# Restart analysis
+The primary goal of the present study was the conceptual replication of previous findings on the positive association between cardiovascular reactivity and cardioceptive accuracy (Hypothesis 1); also, we wanted to study the hypothesized moderating role of cardioceptive accuracy on the association between physiological and perceived aspects of the acute stress reaction (Hypothesis 2).Cardioceptive accuracy was assessed using two paradigms: heart rate perception and mental heartbeat tracking; furthermore, the latter was administered with strict instruction in order to minimize the impact of top-down factors on perception. Finally, it was hypothesized that expectation plays a role in the perception of stress (Hypothesis 3)."
+
+## H2
+2 db regresszió, aminek kimeneti változója a deltaSTAI, bemeneti változója, a (1) HBP vagy HRP, (2) deltaHR és (3) az utóbbi két változóból képzett interaction term. Ez így 3 prediktor n = 64-re, még mindig nem túl fényes, de védhető. Sex, bodyfat%, task_order nem kell, én nem tenném bele az EDA-t sem, mert ez a cikk alapvetően a kardiovaszkuláris rendszerre fókuszál. Kevéssé védhető az, hogy a deltaEDA a CAc-vel lép interakcióba. Az elvárást (H3) pedig teszteljük külön, a követhetőség kedvéért.
+
+Δstai ~ Δhr + ca + Δhr:ca + task_order
+```{r}
+hypo23df <- 
+  reactivity |> 
+  left_join(select(experiment, 
+                    id, bodyfat_percent, sex, task_order, hrp, ca,
+                    expected_stress_Handgrip = physical_expected_stress,
+                    `expected_stress_N-back` = mental_expected_stress), 
+             by = "id") |> 
+  # Standardize continuous variables
+  mutate(across(c(`meanhr_react_N-back`, meanhr_react_Handgrip,
+                  `eda.avg_react_N-back`, `eda.avg_react_Handgrip`,
+                  expected_stress_Handgrip, `expected_stress_N-back`,
+                  `stai_react_N-back`, stai_react_Handgrip,
+                  ca, hrp), 
+                 ~scale(.x, scale = FALSE) %>% 
+                  as.numeric()))
+
+
+h2_Handgrip_hbp <- lm(`stai_react_Handgrip` ~ `meanhr_react_Handgrip` * ca + task_order, data = hypo23df)
+
+`h2_N-Back_hbp` <- lm(`stai_react_N-back` ~ `meanhr_react_N-back` * ca + task_order, data = hypo23df)
+
+h2_Handgrip_hrp <- lm(`stai_react_Handgrip` ~ `meanhr_react_Handgrip` * hrp + task_order, data = hypo23df)
+
+`h2_N-Back_hrp` <- lm(`stai_react_N-back` ~ `meanhr_react_N-back` * hrp + task_order, data = hypo23df)
+
+h2 <- list(h2_Handgrip_hbp,
+          `h2_N-Back_hbp`,
+          h2_Handgrip_hrp,
+          `h2_N-Back_hrp`) |> 
+  set_names(c("Handgrip-HBP", "N-back-HBP", "Handgrip-HRP", "N-back-HRP"))
+
+tab_model(h2,
+          show.aic = TRUE,
+          show.stat = TRUE,
+          dv.labels = names(h2))
+
+
+map_dfr(h2, tidy, .id = "model", conf.int = TRUE) |> 
+   select(model, term, estimate, std.error, conf.low, conf.high, statistic, p.value) |> 
+   gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "statistic", "conf.high"), decimals = 2) |> 
+   fmt_number(c("p.value"), decimals = 3) |> 
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   ) |> 
+  gtsave("docs/newh2.docx")
+
+```
+
+## H3
+
+deltaSTAI ~ deltaHR + expected stress (ide logikusabb betenni a deltaEDA-t, ha gondoljuk)
+Δstai ~ Δhr + Δeda + expected_stress + task_order
+
+```{r}
+
+h3_Handgrip <- lm(`stai_react_Handgrip` ~ `meanhr_react_Handgrip` + `eda.avg_react_Handgrip` + `expected_stress_Handgrip` + task_order,
+   data = hypo23df)
+
+`h3_N-back` <- lm(`stai_react_N-back` ~ `meanhr_react_N-back` + `eda.avg_react_N-back` + `expected_stress_N-back` + task_order,
+   data = hypo23df)
+
+h3 <- 
+  list(h3_Handgrip, `h3_N-back`) |> 
+  set_names(c("Handgrip", "N-back"))
+
+map_dfr(h3, tidy, .id = "Task", conf.int = TRUE) |> 
+   select(Task, term, estimate, std.error, conf.low, conf.high, statistic, p.value) |> 
+   gt() %>% 
+   fmt_number(c("estimate", "std.error", "conf.low", "conf.high", "statistic"), decimals = 2) |> 
+   fmt_number(c("p.value"), decimals = 3) |> 
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE"
+   ) |> 
+  gtsave("docs/newh3.docx")
+
+```
 
 
 
