@@ -474,7 +474,7 @@ annotation_df <-
 
 annot_hreda <- 
   annotation_df |> 
-  filter(metric %in% c("Mean EDA (log uS)", "Mean EDA (log uS)"))
+  filter(metric %in% c("Mean EDA (log uS)", "Mean HR (bpm)"))
 
 # Plot physiological changes with significance
 phys_trans %>% 
