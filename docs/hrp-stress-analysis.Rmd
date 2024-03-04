@@ -222,12 +222,13 @@ stai_sum %>%
 # Stats
 stai %>% 
    filter(task != "baseline") %>% 
-   lmer(value ~ task * time + stai_s_t0_sum + task_order + (1|id), 
+   lmer(value ~ task * time + task_order + (1|id), 
         data = .) %>% 
    tab_model(dv.labels = "STAI-S", 
              show.aicc = TRUE,
              show.stat = TRUE,
-             show.df = TRUE,
+             show.df = TRUE, 
+             # file = "docs/stai_model.html",
              show.std = TRUE)
 ```
 </div>
@@ -254,6 +255,7 @@ stai_sum %>%
         x = NULL) +
   theme(panel.grid = element_blank())
 
+ggsave("figures/figure_2.jpeg", dpi = 300)
 
 ```
 
@@ -384,20 +386,64 @@ reactivity %>%
 
 phys_trans %>% 
   select(id, marker, ca, hrp, 
-         meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+         meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) |> 
+  group_by(marker) |> 
   summarise(across(ca:lg_eda_avg, 
-                   list(mean = mean, sd = sd), 
+                   list(mean = mean, sd = sd, min = min, max = max), 
                    na.rm = TRUE)) %>% 
-  pivot_longer(everything(), 
+  pivot_longer(-marker, 
                names_to = c("name", "stat"), 
-               names_pattern = "^(.*)_(.*)$") %>% 
-  pivot_wider(names_from = "stat") %>% 
-  left_join(phys_metrics, by = "name") %>% 
-  relocate(metric) %>% 
-  gt() %>% 
-  fmt_number(mean:sd, decimals = 2)
+               names_pattern = "^(.*)_(.*)$") |> 
+  pivot_wider(names_from = "stat") |> 
+  left_join(phys_metrics, by = "name") |> 
+  relocate(metric) |> 
+  gt() |> 
+  fmt_number(mean:max, decimals = 2)
 ```
 
+```{r}
+phys_trans %>% 
+  select(id, marker, ca, hrp, 
+         meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) |> 
+  group_by(marker) |> 
+  summarise(across(ca:lg_eda_avg, 
+                   list(Distribution = inline_hist))) |> 
+  pivot_longer(-marker, 
+               names_to = c("name", "stat"), 
+               names_pattern = "^(.*)_(.*)$")
+```
+
+
+
+## Physiological change models
+```{r}
+phys_models <- 
+  phys_trans |> 
+  select(id, marker, meanhr, lg_eda_avg, task_order) |> 
+  pivot_longer(meanhr:lg_eda_avg) |> 
+  group_by(name) |> 
+  nest() |> 
+  mutate(model = map(data, ~lmer(value ~ marker + task_order + (1|id), data = .x)),
+         model_param = map(model, tidy, conf.int = TRUE),
+         model_eval = map(model, glance)) |> 
+  ungroup()
+  
+phys_models |> 
+  pull(model) |> 
+  tab_model(dv.labels = c("Mean HR (bpm)", "Mean EDA (uS)"),
+            show.stat = TRUE, show.df = TRUE, show.std = TRUE, 
+            # file = "docs/phys_models.html",
+            show.fstat = TRUE)
+
+phys_models |> 
+  select(name, model_param) |> 
+  unnest(model_param)
+
+phys_models |> 
+  select(name, model_eval) |> 
+  unnest(model_eval)
+
+```
 
 
 ## Visualize phys changes
@@ -426,10 +472,13 @@ annotation_df <-
   mutate(top = max(y) * 1.015) %>% 
   ungroup()
 
+annot_hreda <- 
+  annotation_df |> 
+  filter(metric %in% c("Mean EDA (log uS)", "Mean EDA (log uS)"))
 
 # Plot physiological changes with significance
 phys_trans %>% 
-  select(id, marker, meanhr, lg_hf_percent, lg_rmssd, lg_eda_avg) %>% 
+  select(id, marker, meanhr, lg_eda_avg) %>% 
   pivot_longer(meanhr:lg_eda_avg, values_drop_na = TRUE) %>%
   left_join(phys_metrics, by = "name") %>% 
   ggplot() +
@@ -443,12 +492,15 @@ phys_trans %>%
   labs(y = "Mean value (SEM)",
        x = NULL) +
   theme(panel.grid = element_blank()) +
-  geom_blank(data = annotation_df, aes(y = top)) +
+  geom_blank(data = annot_hreda, aes(y = top)) +
   geom_signif(inherit.aes = FALSE, 
-              data = annotation_df, manual = TRUE, 
+              data = annot_hreda, manual = TRUE, 
               aes(xmin = start, xmax = end, annotations = label, y_position = y),
               color = "black", alpha = .6,
               textsize = 3, tip_length = .002, margin_top = 12, vjust = -.1)
+
+ggsave("figures/figure_3.jpeg", dpi = 300)
+
 ```
 
 ## Change  stats in %
@@ -789,26 +841,11 @@ interaction_df <-
   reactivity %>% 
   select(id, `meanhr_react_N-back`, meanhr_react_Handgrip,
          `stai_react_N-back`, stai_react_Handgrip) %>%
-  left_join(select(experiment, id, ca, hrp, hrp_group, hbp_group), by = "id") %>%
+  left_join(select(experiment, id, ca, hrp, hrp_group), by = "id") %>%
   pivot_longer(`meanhr_react_N-back`:stai_react_Handgrip,
                names_to = c("name", "task"),
                names_pattern = "(.*_react)_(.*)") %>% 
   pivot_wider(names_from = "name", values_from = "value")
-
-hbp_plot <- 
-  interaction_df %>% 
-  ggplot() +
-  aes(y = stai_react, x = meanhr_react, color = hbp_group) +
-  geom_hline(yintercept = 0, lty = "dashed", alpha = .2) +
-  geom_vline(xintercept = 0, lty = "dashed", alpha = .2) +
-  geom_point(alpha = .5) +
-  geom_smooth(method = "lm", se = FALSE, alpha = .7) +
-  scale_color_brewer(palette = "Reds") +
-  facet_wrap(~task, scales = "free_x") +
-  labs(color = "HBP group",
-       x = NULL,
-       y = "STAI change") +
-  theme(legend.position = c(0.93, 0.22), panel.grid = element_blank())
 
 hrp_plot <-
   interaction_df %>% 
@@ -822,10 +859,12 @@ hrp_plot <-
   facet_wrap(~task, scales = "free_x") +
   labs(color = "HRP group",
        x = "HR change",
-       y = "STAI change") +
+       y = "STAI-S change") +
   theme(legend.position = c(0.93, 0.22), panel.grid = element_blank())
 
-hbp_plot + hrp_plot + plot_layout(nrow = 2)
+hrp_plot
+
+ggsave(here("figures/figure_4.jpeg"), plot = hrp_plot, dpi = 300)
   
 ```
 
@@ -926,10 +965,6 @@ hr_plot
 # Restart analysis
 The primary goal of the present study was the conceptual replication of previous findings on the positive association between cardiovascular reactivity and cardioceptive accuracy (Hypothesis 1); also, we wanted to study the hypothesized moderating role of cardioceptive accuracy on the association between physiological and perceived aspects of the acute stress reaction (Hypothesis 2).Cardioceptive accuracy was assessed using two paradigms: heart rate perception and mental heartbeat tracking; furthermore, the latter was administered with strict instruction in order to minimize the impact of top-down factors on perception. Finally, it was hypothesized that expectation plays a role in the perception of stress (Hypothesis 3)."
 
-## H2
-2 db regresszió, aminek kimeneti változója a deltaSTAI, bemeneti változója, a (1) HBP vagy HRP, (2) deltaHR és (3) az utóbbi két változóból képzett interaction term. Ez így 3 prediktor n = 64-re, még mindig nem túl fényes, de védhető. Sex, bodyfat%, task_order nem kell, én nem tenném bele az EDA-t sem, mert ez a cikk alapvetően a kardiovaszkuláris rendszerre fókuszál. Kevéssé védhető az, hogy a deltaEDA a CAc-vel lép interakcióba. Az elvárást (H3) pedig teszteljük külön, a követhetőség kedvéért.
-
-Δstai ~ Δhr + ca + Δhr:ca + task_order
 ```{r}
 hypo23df <- 
   reactivity |> 
@@ -941,13 +976,32 @@ hypo23df <-
   # Standardize continuous variables
   mutate(across(c(`meanhr_react_N-back`, meanhr_react_Handgrip,
                   `eda.avg_react_N-back`, `eda.avg_react_Handgrip`,
-                  expected_stress_Handgrip, `expected_stress_N-back`,
+                  `expected_stress_N-back`, expected_stress_Handgrip, 
                   `stai_react_N-back`, stai_react_Handgrip,
                   ca, hrp), 
-                 ~scale(.x, scale = FALSE) %>% 
-                  as.numeric()))
+                 ~scale(.x, 
+                        scale = FALSE,
+                        ) %>% as.numeric()
+                )
+         )
+```
+
+## H1
+
+```{r}
+hypo23df |> 
+  correlation(select = c("meanhr_react_Handgrip", "meanhr_react_N-back",
+              "ca", "hrp"), p_adjust = "none")
+
+```
 
 
+## H2
+2 db regresszió, aminek kimeneti változója a deltaSTAI, bemeneti változója, a (1) HBP vagy HRP, (2) deltaHR és (3) az utóbbi két változóból képzett interaction term. Ez így 3 prediktor n = 64-re, még mindig nem túl fényes, de védhető. Sex, bodyfat%, task_order nem kell, én nem tenném bele az EDA-t sem, mert ez a cikk alapvetően a kardiovaszkuláris rendszerre fókuszál. Kevéssé védhető az, hogy a deltaEDA a CAc-vel lép interakcióba. Az elvárást (H3) pedig teszteljük külön, a követhetőség kedvéért.
+
+Δstai ~ Δhr + ca + Δhr:ca + task_order
+
+```{r}
 h2_Handgrip_hbp <- lm(`stai_react_Handgrip` ~ `meanhr_react_Handgrip` * ca + task_order, data = hypo23df)
 
 `h2_N-Back_hbp` <- lm(`stai_react_N-back` ~ `meanhr_react_N-back` * ca + task_order, data = hypo23df)
@@ -963,6 +1017,7 @@ h2 <- list(h2_Handgrip_hbp,
   set_names(c("Handgrip-HBP", "N-back-HBP", "Handgrip-HRP", "N-back-HRP"))
 
 tab_model(h2,
+          show.std = TRUE,
           show.aic = TRUE,
           show.stat = TRUE,
           dv.labels = names(h2))
@@ -980,7 +1035,20 @@ map_dfr(h2, tidy, .id = "model", conf.int = TRUE) |>
                row.striping.include_table_body = TRUE,
                row.striping.background_color = "#EEEEEE"
    ) |> 
-  gtsave("docs/newh2.docx")
+  gtsave("docs/newh2_est.docx")
+
+map_dfr(h2, glance, .id = "model", conf.int = TRUE) |> 
+  select(-sigma, -logLik, -deviance) |> 
+   gt() |> 
+   fmt_number(c("r.squared", "adj.r.squared", "statistic", "AIC", "BIC"), decimals = 2) |> 
+   fmt_number(c("p.value"), decimals = 3) |> 
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE") |> 
+  gtsave("docs/newh2_perf.docx")
 
 ```
 
@@ -1013,7 +1081,32 @@ map_dfr(h3, tidy, .id = "Task", conf.int = TRUE) |>
                row.striping.include_table_body = TRUE,
                row.striping.background_color = "#EEEEEE"
    ) |> 
-  gtsave("docs/newh3.docx")
+  gtsave("docs/newh3_est.docx")
+
+
+map_dfr(h3, glance, .id = "model", conf.int = TRUE) |> 
+  select(-sigma, -logLik, -deviance, -nobs) |> 
+   gt() |> 
+   fmt_number(c("r.squared", "adj.r.squared", "statistic", "AIC", "BIC"), decimals = 2) |> 
+   fmt_number(c("p.value"), decimals = 3) |> 
+   tab_options(column_labels.font.weight = "bold",
+               column_labels.background.color = "lightgrey",
+               row_group.background.color = "lightgrey", 
+               row_group.font.weight = "bold", 
+               row.striping.include_table_body = TRUE,
+               row.striping.background_color = "#EEEEEE") |> 
+  gtsave("docs/newh3_perf.docx")
+
+
+t.test(x = experiment$physical_expected_stress, y = experiment$mental_expected_stress, 
+       paired = TRUE)
+
+effectsize::t_to_d(t = -3.5928, df_error = 65, paired = TRUE)
+
+experiment |> 
+  mutate(exp_ch = physical_expected_stress - mental_expected_stress) |> 
+  lm(exp_ch ~ 1 + task_order, data = _) |> 
+  summary()
 
 ```
 
